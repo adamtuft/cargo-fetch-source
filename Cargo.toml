@@ -1,0 +1,14 @@
+[package]
+name = "cargo-fetch-source"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "fetch_source"
+path = "src/lib/lib.rs"
+
+[[bin]]
+name = "cargo-fetch-source"
+path = "src/bin/cargo-fetch-source.rs"
+
+[dependencies]
