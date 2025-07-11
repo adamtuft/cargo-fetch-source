@@ -15,10 +15,8 @@ enum GitReference {
 impl GitReference {
     fn as_branch_name(&self) -> Option<&str> {
         match self {
-            GitReference::Branch(name) | GitReference::Tag(name) => {
-                Some(name)
-            }
-            GitReference::Rev(_) => None
+            GitReference::Branch(name) | GitReference::Tag(name) => Some(name),
+            GitReference::Rev(_) => None,
         }
     }
     fn as_commit_sha(&self) -> Option<&str> {
@@ -46,10 +44,8 @@ impl GitSource {
 
     fn branch_name(&self) -> Option<&str> {
         match self.reference.as_ref() {
-            Some(GitReference::Branch(name)) | Some(GitReference::Tag(name)) => {
-                Some(name)
-            }
-            _ => None
+            Some(GitReference::Branch(name)) | Some(GitReference::Tag(name)) => Some(name),
+            _ => None,
         }
     }
 

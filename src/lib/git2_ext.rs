@@ -1,11 +1,15 @@
+use std::io::{Write, stdin, stdout};
 use std::path::{Path, PathBuf};
-use std::io::{stdout, stdin, Write};
 
-pub(crate) use git2::{Repository, Error};
+pub(crate) use git2::{Error, Repository};
 
 pub(crate) trait RepositoryExt {
     fn find_object_from_commit_sha(&self, commit_sha: &str) -> Result<git2::Object, git2::Error>;
-    fn clone_into(url: &str, branch: Option<&str>, into: &Path) -> Result<git2::Repository, git2::Error>;
+    fn clone_into(
+        url: &str,
+        branch: Option<&str>,
+        into: &Path,
+    ) -> Result<git2::Repository, git2::Error>;
     fn checkout_commit(&self, sha: &str) -> Result<(), git2::Error>;
     fn update_submodules_recursive(&self) -> Result<(), git2::Error>;
 }
@@ -26,7 +30,11 @@ impl RepositoryExt for git2::Repository {
         }
     }
 
-    fn clone_into(url: &str, branch: Option<&str>, into: &Path) -> Result<git2::Repository, git2::Error> {
+    fn clone_into(
+        url: &str,
+        branch: Option<&str>,
+        into: &Path,
+    ) -> Result<git2::Repository, git2::Error> {
         let mut callbacks = git2::RemoteCallbacks::new();
         callbacks.credentials(prepare_git_credentials);
         let mut fetch_options = git2::FetchOptions::new();
@@ -38,7 +46,7 @@ impl RepositoryExt for git2::Repository {
         }
         builder.clone(url, into)
     }
-    
+
     fn checkout_commit(&self, sha: &str) -> Result<(), git2::Error> {
         let mut checkout_builder = git2::build::CheckoutBuilder::new();
         let commit = self.find_object_from_commit_sha(sha)?;

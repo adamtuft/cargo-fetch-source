@@ -1,21 +1,25 @@
-mod git2_ext;
 mod artefact;
-mod tar;
-mod git;
 mod error;
+mod git;
+mod git2_ext;
+mod tar;
 use error::Error;
 mod source;
 
-//! TODO: want to have this implemented for enum source::Source as a match-block that calls
-//! out to each variant's logic. Don't need this to be a trait.
+// ! TODO: want to have this implemented for enum source::Source as a match-block that calls
+// ! out to each variant's logic. Don't need this to be a trait.
 trait Fetch {
-    fn fetch(&self, name: &str, dir: std::path::PathBuf) -> Result<artefact::Artefact, crate::Error>;
+    fn fetch(
+        &self,
+        name: &str,
+        dir: std::path::PathBuf,
+    ) -> Result<artefact::Artefact, crate::Error>;
 }
 
 #[cfg(test)]
 mod tests {
+    use super::source::{fetch_source, fetch_source_blocking, get_remote_sources_from_toml_table};
     use std::fs;
-    use super::source::{get_remote_sources_from_toml_table, fetch_source, fetch_source_blocking};
 
     #[test]
     fn print_sources_manually_extract() {
