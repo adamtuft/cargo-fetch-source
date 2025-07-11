@@ -60,10 +60,29 @@ enum Url<'a> {
     Git(&'a str),
 }
 
+impl AsRef<str> for Url<'_> {
+    fn as_ref(&self) -> &str {
+        match self {
+            Url::Tar(url) => url,
+            Url::Git(url) => url,
+        }
+    }
+}
+
+trait GetUrl {
+    fn url(&self) -> Url<'_>;
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct TarSource {
     #[serde(rename = "tar")]
     url: String,
+}
+
+impl GetUrl for TarSource {
+    fn url(&self) -> Url<'_> {
+        Url::Tar(&self.url)
+    }
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -84,6 +103,12 @@ struct GitSource {
     reference: Option<GitReference>,
     #[serde(default)]
     recursive: bool,
+}
+
+impl GetUrl for GitSource {
+    fn url(&self) -> Url<'_> {
+        Url::Git(&self.url)
+    }
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -116,11 +141,15 @@ fn get_remote_sources_from_toml_table(table: &toml::Table) -> Result<Sources, se
 }
 
 async fn fetch_source<'a>(name: &'a str, source: &'a Source, into_root: PathBuf) -> Result<(&'a str, Artefact), crate::Error> {
-    let result = match source.get_url() {
-        Url::Tar(url) => {
-            fetch_tar_source(url, into_root.join(format!("{name}.tar.gz"))).await
-        }
-        Url::Git(url) => fetch_git_source(url, into_root.join(name))
+    let result = match source {
+        Source::Tar(tar) => {
+            fetch_tar_source(tar.url().as_ref(), into_root.join(format!("{name}.tar.gz"))).await
+        },
+        Source::Git(git) => if git.recursive {
+            fetch_git_source_submodules_recursive(git.url().as_ref(), into_root.join(name))
+        } else {
+            fetch_git_source(git.url().as_ref(), into_root.join(name))
+        },
     };
     result.map(|artefact| (name, artefact))
 }
@@ -146,6 +175,41 @@ where
     fetch_options.remote_callbacks(callbacks);
     builder.fetch_options(fetch_options);
     Ok(Artefact::Repository(builder.clone(url, into.as_ref())?))
+}
+
+fn fetch_git_source_submodules_recursive<P>(url: &str, into: P) -> Result<Artefact, crate::Error>
+where
+    P: AsRef<Path>
+{
+    println!("Fetching git source and all submodules from: {url}");
+    let mut builder = git2::build::RepoBuilder::new();
+    let mut fetch_options = git2::FetchOptions::new();
+    let mut callbacks = git2::RemoteCallbacks::new();
+    callbacks.credentials(prepare_git_credentials);
+    fetch_options.remote_callbacks(callbacks);
+    builder.fetch_options(fetch_options);
+    let repo = builder.clone(url, into.as_ref())?;
+    for mut submodule in repo.submodules()? {
+        checkout_submodules_recursive(&mut submodule, into.as_ref().to_path_buf())?;
+    }
+    Ok(Artefact::Repository(repo))
+}
+
+fn checkout_submodules_recursive(module: &mut git2::Submodule, top_level: PathBuf) -> Result<(), crate::Error> {
+    let mut callbacks = git2::RemoteCallbacks::new();
+    callbacks.credentials(prepare_git_credentials);
+    let mut update_fetch_options = git2::FetchOptions::new();
+    update_fetch_options.remote_callbacks(callbacks);
+    let mut update_options = git2::SubmoduleUpdateOptions::new();
+    update_options.fetch(update_fetch_options);
+    module.update(true, Some(&mut update_options))?;
+    let p = top_level.join(module.path());
+    println!("Updating submodule at: {p:?}");
+    let subrepository = git2::Repository::open(&p)?;
+    for mut submodule in subrepository.submodules()? {
+        checkout_submodules_recursive(&mut submodule, p.clone())?;
+    }
+    Ok(())
 }
 
 fn prepare_git_credentials(
