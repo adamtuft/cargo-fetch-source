@@ -20,6 +20,8 @@ pub enum Error {
     SerdeJsonError(#[from] serde_json::Error),
     #[error(transparent)]
     Git2Error(#[from] git2::Error),
+    #[error(transparent)]
+    UrlParseError(#[from] url::ParseError),
 }
 
 enum Artefact {
@@ -55,9 +57,19 @@ impl std::fmt::Debug for Artefact {
     }
 }
 
+#[derive(Debug)]
 enum Url<'a> {
     Tar(&'a str),
     Git(&'a str),
+}
+
+impl std::fmt::Display for Url<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Url::Tar(url) => write!(f, "{url}"),
+            Url::Git(url) => write!(f, "{url}"),
+        }
+    }
 }
 
 impl AsRef<str> for Url<'_> {
@@ -73,15 +85,57 @@ trait GetUrl {
     fn url(&self) -> Url<'_>;
 }
 
+trait Fetch {
+    fn fetch(&self, name: &str, dir: PathBuf) -> Result<Artefact, crate::Error>;
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct TarSource {
     #[serde(rename = "tar")]
     url: String,
 }
 
+impl TarSource {
+
+    fn fetch_blocking_impl(url: &str, path: PathBuf) -> Result<Artefact, crate::Error> {
+        let mut f = fs::File::create(&path)?;
+        let response = reqwest::blocking::get(url)?;
+        let body = response.bytes()?;
+        let size = io::copy(&mut body.as_ref(), &mut f)?;
+        Ok(Artefact::Tarball { size, path })
+    }
+
+    async fn fetch_async_impl(url: &str, path: PathBuf) -> Result<Artefact, crate::Error> {
+        let mut f = fs::File::create(&path)?;
+        let response = reqwest::get(url).await?;
+        let body = response.bytes().await?;
+        let size = io::copy(&mut body.as_ref(), &mut f)?;
+        Ok(Artefact::Tarball { size, path })
+    }
+
+    async fn fetch_async(&self, dir: PathBuf) -> Result<Artefact, crate::Error> {
+        let parsed = url::Url::parse(&self.url)?;
+        let filename = parsed.path_segments()
+            .and_then(|mut s| s.next_back())
+            .expect("The URL should end in a filename");
+        Self::fetch_async_impl(&self.url, dir.join(filename)).await
+    }
+
+}
+
 impl GetUrl for TarSource {
     fn url(&self) -> Url<'_> {
         Url::Tar(&self.url)
+    }
+}
+
+impl Fetch for TarSource {
+    fn fetch(&self, _: &str, dir: PathBuf) -> Result<Artefact, crate::Error> {
+        let parsed = url::Url::parse(&self.url)?;
+        let filename = parsed.path_segments()
+            .and_then(|mut s| s.next_back())
+            .expect("The URL should end in a filename");
+        Self::fetch_blocking_impl(&self.url, dir.join(filename))
     }
 }
 
@@ -105,9 +159,55 @@ struct GitSource {
     recursive: bool,
 }
 
+impl GitSource {
+    pub fn is_recursive(&self) -> bool {
+        self.recursive
+    }
+
+    fn checkout_submodule(submodule: &mut git2::Submodule) -> Result<(), crate::Error> {
+        let mut callbacks = git2::RemoteCallbacks::new();
+        callbacks.credentials(prepare_git_credentials);
+        let mut update_fetch_options = git2::FetchOptions::new();
+        update_fetch_options.remote_callbacks(callbacks);
+        let mut update_options = git2::SubmoduleUpdateOptions::new();
+        update_options.fetch(update_fetch_options);
+        Ok(submodule.update(true, Some(&mut update_options))?)
+    }
+
+    fn checkout_submodules_recursive(submodule: &mut git2::Submodule, top_level: PathBuf) -> Result<(), crate::Error> {
+        let p = top_level.join(submodule.path());
+        println!("Updating submodule at: {p:?}");
+        let subrepository = git2::Repository::open(&p)?;
+        for mut submodule in subrepository.submodules()? {
+            Self::checkout_submodule(&mut submodule)?;
+            Self::checkout_submodules_recursive(&mut submodule, p.clone())?;
+        }
+        Ok(())
+    }
+}
+
 impl GetUrl for GitSource {
     fn url(&self) -> Url<'_> {
         Url::Git(&self.url)
+    }
+}
+
+impl Fetch for GitSource {
+    fn fetch(&self, name: &str, dir: PathBuf) -> Result<Artefact, crate::Error> {
+        let mut builder = git2::build::RepoBuilder::new();
+        let mut fetch_options = git2::FetchOptions::new();
+        let mut callbacks = git2::RemoteCallbacks::new();
+        callbacks.credentials(prepare_git_credentials);
+        fetch_options.remote_callbacks(callbacks);
+        builder.fetch_options(fetch_options);
+        let repo = builder.clone(&self.url, &dir.join(name))?;
+        if self.recursive {
+            for mut submodule in repo.submodules()? {
+                Self::checkout_submodule(&mut submodule)?;
+                Self::checkout_submodules_recursive(&mut submodule, dir.join(name))?;
+            }
+        }
+        Ok(Artefact::Repository(repo))
     }
 }
 
@@ -140,76 +240,34 @@ fn get_remote_sources_from_toml_table(table: &toml::Table) -> Result<Sources, se
     Ok(sources)
 }
 
-async fn fetch_source<'a>(name: &'a str, source: &'a Source, into_root: PathBuf) -> Result<(&'a str, Artefact), crate::Error> {
+async fn fetch_source<'a>(name: &'a str, source: &'a Source, dir: PathBuf) -> Result<(&'a str, Artefact), crate::Error> {
     let result = match source {
-        Source::Tar(tar) => {
-            fetch_tar_source(tar.url().as_ref(), into_root.join(format!("{name}.tar.gz"))).await
-        },
-        Source::Git(git) => if git.recursive {
-            fetch_git_source_submodules_recursive(git.url().as_ref(), into_root.join(name))
-        } else {
-            fetch_git_source(git.url().as_ref(), into_root.join(name))
+        Source::Tar(tar) => tar.fetch_async(dir).await,
+        Source::Git(git) => {
+            if git.is_recursive() {
+                println!("Fetching git source and all submodules from: {}", git.url());
+            } else {
+                println!("Fetching git source from: {}", git.url());
+            }
+            git.fetch(name, dir)
         },
     };
     result.map(|artefact| (name, artefact))
 }
 
-async fn fetch_tar_source(url: &str, path: PathBuf) -> Result<Artefact, crate::Error> {
-    let mut f = fs::File::create(&path)?;
-    println!("Fetching tarball: {url}");
-    let response = reqwest::get(url).await?; // failed to fetch url
-    let body = response.bytes().await?; // failed to read the response body
-    let size = io::copy(&mut body.as_ref(), &mut f)?;
-    Ok(Artefact::Tarball { size, path })
-}
-
-fn fetch_git_source<P>(url: &str, into: P) -> Result<Artefact, crate::Error>
-where
-    P: AsRef<Path>
-{
-    println!("Fetching git source from: {url}");
-    let mut builder = git2::build::RepoBuilder::new();
-    let mut fetch_options = git2::FetchOptions::new();
-    let mut callbacks = git2::RemoteCallbacks::new();
-    callbacks.credentials(prepare_git_credentials);
-    fetch_options.remote_callbacks(callbacks);
-    builder.fetch_options(fetch_options);
-    Ok(Artefact::Repository(builder.clone(url, into.as_ref())?))
-}
-
-fn fetch_git_source_submodules_recursive<P>(url: &str, into: P) -> Result<Artefact, crate::Error>
-where
-    P: AsRef<Path>
-{
-    println!("Fetching git source and all submodules from: {url}");
-    let mut builder = git2::build::RepoBuilder::new();
-    let mut fetch_options = git2::FetchOptions::new();
-    let mut callbacks = git2::RemoteCallbacks::new();
-    callbacks.credentials(prepare_git_credentials);
-    fetch_options.remote_callbacks(callbacks);
-    builder.fetch_options(fetch_options);
-    let repo = builder.clone(url, into.as_ref())?;
-    for mut submodule in repo.submodules()? {
-        checkout_submodules_recursive(&mut submodule, into.as_ref().to_path_buf())?;
-    }
-    Ok(Artefact::Repository(repo))
-}
-
-fn checkout_submodules_recursive(module: &mut git2::Submodule, top_level: PathBuf) -> Result<(), crate::Error> {
-    let mut callbacks = git2::RemoteCallbacks::new();
-    callbacks.credentials(prepare_git_credentials);
-    let mut update_fetch_options = git2::FetchOptions::new();
-    update_fetch_options.remote_callbacks(callbacks);
-    let mut update_options = git2::SubmoduleUpdateOptions::new();
-    update_options.fetch(update_fetch_options);
-    module.update(true, Some(&mut update_options))?;
-    let p = top_level.join(module.path());
-    println!("Updating submodule at: {p:?}");
-    let subrepository = git2::Repository::open(&p)?;
-    for mut submodule in subrepository.submodules()? {
-        checkout_submodules_recursive(&mut submodule, p.clone())?;
-    }
-    Ok(())
+fn fetch_source_blocking<'a>(name: &'a str, source: &'a Source, dir: PathBuf) -> Result<(&'a str, Artefact), crate::Error> {
+    let result = match source {
+        Source::Tar(tar) => tar.fetch(name, dir),
+        Source::Git(git) => {
+            if git.is_recursive() {
+                println!("Fetching git source and all submodules from: {}", git.url());
+            } else {
+                println!("Fetching git source from: {}", git.url());
+            }
+            git.fetch(name, dir)
+        },
+    };
+    result.map(|artefact| (name, artefact))
 }
 
 fn prepare_git_credentials(
@@ -269,6 +327,22 @@ mod tests {
                 .map(|(n, s)| fetch_source(n, s, fetch_dir.clone()));
             futures::future::join_all(futures).await
         });
+        println!("Fetched sources: {results:#?}");
+    }
+
+    #[test]
+    fn test_fetch_sources_blocking() {
+        let fetch_dir = PathBuf::from("test/test_fetch_sources_blocking");
+        fs::create_dir_all(&fetch_dir).expect("Failed to create directory for fetching sources");
+        let document = fs::read_to_string("Cargo.toml")
+            .expect("Failed to read Cargo.toml")
+            .parse::<toml::Table>().unwrap()
+            ;
+        let sources = get_remote_sources_from_toml_table(&document).unwrap();
+        let results = sources
+            .iter()
+            .map(|(n, s)| fetch_source_blocking(n, s, fetch_dir.clone()))
+            .collect::<Vec<_>>();
         println!("Fetched sources: {results:#?}");
     }
 }
