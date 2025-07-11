@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 use std::io::{stdout, stdin, Write};
 
-pub trait RepositoryExt {
+pub(crate) use git2::{Repository, Error};
+
+pub(crate) trait RepositoryExt {
     fn find_object_from_commit_sha(&self, commit_sha: &str) -> Result<git2::Object, git2::Error>;
     fn clone_into(url: &str, branch: Option<&str>, into: &Path) -> Result<git2::Repository, git2::Error>;
     fn checkout_commit(&self, sha: &str) -> Result<(), git2::Error>;

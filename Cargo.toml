@@ -30,5 +30,5 @@ url = "2.5.4"
 # dotfiles-hamilton = { git = "git@github.com:adamtuft/dotfiles.git", branch = "hamilton" }
 # dotfiles-hp = { git = "git@github.com:adamtuft/dotfiles.git", branch = "hp-probook-atuft" }
 # dotfiles-no-branch = { git = "git@github.com:adamtuft/dotfiles.git", branch = "not-a-branch" }
-dotfiles-commit-short = { git = "git@github.com:adamtuft/dotfiles.git", rev = "fafd64a" }
+dotfiles-commit-short = { git = "git@github.com:adamtuft/dotfiles.git", rev = "fafd64a", recursive = true }
 dotfiles-commit-long = { git = "git@github.com:adamtuft/dotfiles.git", rev = "82fbfb0fe2b037676610710069325f703613935f" }

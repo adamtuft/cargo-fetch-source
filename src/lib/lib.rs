@@ -1,287 +1,21 @@
-#![allow(dead_code)]
-#![allow(unused_imports)]
-#![allow(unused_variables)]
-
-use std::collections::HashMap;
-use std::fs;
-use std::io::{self, Write};
-use std::path::{Path, PathBuf};
-
-use futures::TryFutureExt;
-use serde::Deserialize;
-
 mod git2_ext;
-use git2_ext::RepositoryExt;
+mod artefact;
+mod tar;
+mod git;
+mod error;
+use error::Error;
+mod source;
 
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error(transparent)]
-    IoError(#[from] std::io::Error),
-    #[error(transparent)]
-    ReqwestError(#[from] reqwest::Error),
-    #[error(transparent)]
-    SerdeJsonError(#[from] serde_json::Error),
-    #[error(transparent)]
-    Git2Error(#[from] git2::Error),
-    #[error(transparent)]
-    UrlParseError(#[from] url::ParseError),
-    #[error("Manual error: {0}")]
-    Manual(String),
-}
-
-enum Artefact {
-    Tarball { size: u64, path: PathBuf },
-    Repository(git2::Repository),
-}
-
-impl std::fmt::Debug for Artefact {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Tarball { size, path } => {
-                let mut debug_struct = f.debug_struct("Tarball");
-                debug_struct.field("size", size);
-                debug_struct.field("path", path);
-                debug_struct.finish()
-            }
-            Self::Repository(repo) => {
-                let mut debug_struct = f.debug_struct("Repository");
-                if let Some(workdir) = repo.workdir() {
-                    debug_struct.field("workdir", &workdir.display().to_string());
-                }
-                match repo.head() {
-                    Ok(head) => debug_struct.field("head", &head.target()),
-                    Err(_) => debug_struct.field("head", &"<no head>"),
-                };
-                debug_struct.finish()
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-enum Url<'a> {
-    Tar(&'a str),
-    Git(&'a str),
-}
-
-impl std::fmt::Display for Url<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Url::Tar(url) => write!(f, "{url}"),
-            Url::Git(url) => write!(f, "{url}"),
-        }
-    }
-}
-
-impl AsRef<str> for Url<'_> {
-    fn as_ref(&self) -> &str {
-        match self {
-            Url::Tar(url) => url,
-            Url::Git(url) => url,
-        }
-    }
-}
-
-trait GetUrl {
-    fn url(&self) -> Url<'_>;
-}
-
+//! TODO: want to have this implemented for enum source::Source as a match-block that calls
+//! out to each variant's logic. Don't need this to be a trait.
 trait Fetch {
-    fn fetch(&self, name: &str, dir: PathBuf) -> Result<Artefact, crate::Error>;
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct TarSource {
-    #[serde(rename = "tar")]
-    url: String,
-}
-
-impl TarSource {
-    fn fetch_blocking_impl(url: &str, path: PathBuf) -> Result<Artefact, crate::Error> {
-        let mut f = fs::File::create(&path)?;
-        let response = reqwest::blocking::get(url)?;
-        let body = response.bytes()?;
-        let size = io::copy(&mut body.as_ref(), &mut f)?;
-        Ok(Artefact::Tarball { size, path })
-    }
-
-    async fn fetch_async_impl(url: &str, path: PathBuf) -> Result<Artefact, crate::Error> {
-        let mut f = fs::File::create(&path)?;
-        let response = reqwest::get(url).await?;
-        let body = response.bytes().await?;
-        let size = io::copy(&mut body.as_ref(), &mut f)?;
-        Ok(Artefact::Tarball { size, path })
-    }
-
-    async fn fetch_async(&self, dir: PathBuf) -> Result<Artefact, crate::Error> {
-        let parsed = url::Url::parse(&self.url)?;
-        let filename = parsed
-            .path_segments()
-            .and_then(|mut s| s.next_back())
-            .expect("The URL should end in a filename");
-        Self::fetch_async_impl(&self.url, dir.join(filename)).await
-    }
-}
-
-impl GetUrl for TarSource {
-    fn url(&self) -> Url<'_> {
-        Url::Tar(&self.url)
-    }
-}
-
-impl Fetch for TarSource {
-    fn fetch(&self, _: &str, dir: PathBuf) -> Result<Artefact, crate::Error> {
-        let parsed = url::Url::parse(&self.url)?;
-        let filename = parsed
-            .path_segments()
-            .and_then(|mut s| s.next_back())
-            .expect("The URL should end in a filename");
-        Self::fetch_blocking_impl(&self.url, dir.join(filename))
-    }
-}
-
-#[derive(Debug, serde::Deserialize)]
-enum GitReference {
-    #[serde(rename = "branch")]
-    Branch(String),
-    #[serde(rename = "tag")]
-    Tag(String),
-    #[serde(rename = "rev")]
-    Rev(String),
-}
-
-impl GitReference {
-    fn as_branch_name(&self) -> Option<&str> {
-        match self {
-            GitReference::Branch(name) | GitReference::Tag(name) => {
-                Some(name)
-            }
-            GitReference::Rev(_) => None
-        }
-    }
-    fn as_commit_sha(&self) -> Option<&str> {
-        match self {
-            GitReference::Branch(name) | GitReference::Tag(name) => None,
-            GitReference::Rev(commit_sha) => Some(commit_sha),
-        }
-    }
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct GitSource {
-    #[serde(rename = "git")]
-    url: String,
-    #[serde(flatten)]
-    reference: Option<GitReference>,
-    #[serde(default)]
-    recursive: bool,
-}
-
-impl GitSource {
-    pub fn is_recursive(&self) -> bool {
-        self.recursive
-    }
-
-    fn branch_name(&self) -> Option<&str> {
-        match self.reference.as_ref() {
-            Some(GitReference::Branch(name)) | Some(GitReference::Tag(name)) => {
-                Some(name)
-            }
-            _ => None
-        }
-    }
-
-    fn commit_sha(&self) -> Option<&str> {
-        match self.reference.as_ref() {
-            Some(GitReference::Rev(commit_sha)) => Some(commit_sha),
-            _ => None,
-        }
-    }
-}
-
-impl GetUrl for GitSource {
-    fn url(&self) -> Url<'_> {
-        Url::Git(&self.url)
-    }
-}
-
-impl Fetch for GitSource {
-    fn fetch(&self, name: &str, dir: PathBuf) -> Result<Artefact, crate::Error> {
-        let repo = git2::Repository::clone_into(&self.url, self.branch_name(), &dir.join(name))?;
-        if let Some(commit_sha) = self.commit_sha() {
-            repo.checkout_commit(commit_sha)?;
-        }
-        if self.recursive {
-            repo.update_submodules_recursive()?;
-        }
-        Ok(Artefact::Repository(repo))
-    }
-}
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(untagged)]
-enum Source {
-    Tar(TarSource),
-    Git(GitSource),
-}
-
-type Sources = HashMap<String, Source>;
-
-fn get_remote_sources_from_toml_table(table: &toml::Table) -> Result<Sources, serde_json::Error> {
-    let sources: Sources = table
-        .get("package")
-        .unwrap()
-        .get("metadata")
-        .unwrap()
-        .get("fetch-source")
-        .unwrap()
-        .to_owned()
-        .try_into()
-        .unwrap();
-    Ok(sources)
-}
-
-async fn fetch_source<'a>(
-    name: &'a str,
-    source: &'a Source,
-    dir: PathBuf,
-) -> Result<(&'a str, Artefact), crate::Error> {
-    let result = match source {
-        Source::Tar(tar) => tar.fetch_async(dir).await,
-        Source::Git(git) => {
-            if git.is_recursive() {
-                println!("Fetching git source and all submodules from: {}", git.url());
-            } else {
-                println!("Fetching git source from: {}", git.url());
-            }
-            git.fetch(name, dir)
-        }
-    };
-    result.map(|artefact| (name, artefact))
-}
-
-fn fetch_source_blocking<'a>(
-    name: &'a str,
-    source: &'a Source,
-    dir: PathBuf,
-) -> Result<(&'a str, Artefact), crate::Error> {
-    let result = match source {
-        Source::Tar(tar) => tar.fetch(name, dir),
-        Source::Git(git) => {
-            if git.is_recursive() {
-                println!("Fetching git source and all submodules from: {}", git.url());
-            } else {
-                println!("Fetching git source from: {}", git.url());
-            }
-            git.fetch(name, dir)
-        }
-    };
-    result.map(|artefact| (name, artefact))
+    fn fetch(&self, name: &str, dir: std::path::PathBuf) -> Result<artefact::Artefact, crate::Error>;
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::fs;
+    use super::source::{get_remote_sources_from_toml_table, fetch_source, fetch_source_blocking};
 
     #[test]
     fn print_sources_manually_extract() {
@@ -295,7 +29,7 @@ mod tests {
 
     #[test]
     fn test_fetch_sources_async() {
-        let fetch_dir = PathBuf::from("test/test_fetch_sources_async");
+        let fetch_dir = std::path::PathBuf::from("test/test_fetch_sources_async");
         fs::create_dir_all(&fetch_dir).expect("Failed to create directory for fetching sources");
         let document = fs::read_to_string("Cargo.toml")
             .expect("Failed to read Cargo.toml")
@@ -314,7 +48,7 @@ mod tests {
 
     #[test]
     fn test_fetch_sources_blocking() {
-        let fetch_dir = PathBuf::from("test/test_fetch_sources_blocking");
+        let fetch_dir = std::path::PathBuf::from("test/test_fetch_sources_blocking");
         fs::create_dir_all(&fetch_dir).expect("Failed to create directory for fetching sources");
         let document = fs::read_to_string("Cargo.toml")
             .expect("Failed to read Cargo.toml")
