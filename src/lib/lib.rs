@@ -4,9 +4,11 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::io;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 
 use futures::TryFutureExt;
+use serde::Deserialize;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -16,6 +18,8 @@ pub enum Error {
     ReqwestError(#[from] reqwest::Error),
     #[error(transparent)]
     SerdeJsonError(#[from] serde_json::Error),
+    #[error(transparent)]
+    Git2Error(#[from] git2::Error),
 }
 
 enum Url<'a> {
@@ -45,6 +49,8 @@ struct GitSource {
     url: String,
     #[serde(flatten)]
     reference: Option<GitReference>,
+    #[serde(default)]
+    recursive: bool,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -65,109 +71,105 @@ impl Source {
 
 type Sources = HashMap<String, Source>;
 
-fn get_remote_sources(metadata: &cargo_metadata::Metadata) -> Result<Sources, serde_json::Error> {
-    if let Some(sources_table) = metadata
-        .root_package()
-        .expect("The root package should have a Cargo.toml")
-        .metadata
-        .as_object()
-        .expect("The package.metadata value should be a table")
-        .get("fetch-source")
-    {
-        serde_json::from_value(sources_table.clone())
-    } else {
-        todo!()
-    }
+fn get_remote_sources_from_toml_table(table: &toml::Table) -> Result<Sources, serde_json::Error> {
+    let sources: Sources = table
+        .get("package").unwrap()
+        .get("metadata").unwrap()
+        .get("fetch-source").unwrap()
+        .to_owned()
+        .try_into()
+        .unwrap();
+    Ok(sources)
 }
 
-async fn fetch_source(source: &Source) -> Result<(), crate::Error> {
-    match source.get_url() {
+async fn fetch_source<'a>(name: &'a str, source: &'a Source, into_root: PathBuf) -> Result<(&'a str, &'a Source), crate::Error> {
+    let result = match source.get_url() {
         Url::Tar(url) => {
-            // HACK!
-            let dest = fs::File::create(url.split('/').next_back().unwrap())?;
+            let dest = fs::File::create(into_root.join(format!("{name}.tar.gz")))?;
             fetch_tar_source(url, dest).await
         }
-        Url::Git(url) => fetch_git_source(url).await,
-    }
-}
-
-async fn fetch_git_source(url: &str) -> Result<(), crate::Error> {
-    println!("Fetching git source from: {url}");
-    Ok(())
+        Url::Git(url) => fetch_git_source(url, into_root.join(name))
+    };
+    result.map(|_| (name, source))
 }
 
 async fn fetch_tar_source(url: &str, mut dest: fs::File) -> Result<(), crate::Error> {
     println!("Fetching tarball: {url}");
     let response = reqwest::get(url).await?; // failed to fetch url
-    let body = reqwest::get(url).and_then(|r| r.bytes()).await?; // failed to read the response body
+    let body = response.bytes().await?; // failed to read the response body
     io::copy(&mut body.as_ref(), &mut dest)?; // failed to copy content
     Ok(())
+}
+
+fn fetch_git_source(url: &str, into: PathBuf) -> Result<(), crate::Error> {
+    println!("Fetching git source from: {url}");
+    let mut builder = git2::build::RepoBuilder::new();
+    let mut fetch_options = git2::FetchOptions::new();
+    let mut callbacks = git2::RemoteCallbacks::new();
+    callbacks.credentials(prepare_git_credentials);
+    fetch_options.remote_callbacks(callbacks);
+    builder.fetch_options(fetch_options);
+    builder.clone(url, &into)?;
+    Ok(())
+}
+
+fn prepare_git_credentials(
+    url: &str,
+    username_from_url: Option<&str>,
+    credential_type: git2::CredentialType,
+) -> Result<git2::Cred, git2::Error> {
+    if credential_type.contains(git2::CredentialType::SSH_KEY) {
+        let user = username_from_url.expect("The ssh link should include a username");
+        let identity_file = std::env::var_os("GIT_IDENTITY_FILE")
+            .map(PathBuf::from)
+            .expect("GIT_IDENTITY_FILE environment variable should be set");
+        git2::Cred::ssh_key(user, None, &identity_file, None)
+    } else if credential_type.contains(git2::CredentialType::USER_PASS_PLAINTEXT) {
+        let username = username_from_url.map(String::from).unwrap_or_else(|| {
+            print!("Enter username for {url}: ");
+            io::stdout().flush().unwrap();
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).unwrap();
+            input.trim().to_string()
+        });
+        let password =
+            rpassword::prompt_password(format!("Enter password/PAT for {username}: ")).unwrap();
+        git2::Cred::userpass_plaintext(&username, &password)
+    } else {
+        Err(git2::Error::from_str("Unsupported credential type, expected ssh or plaintext"))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cargo_metadata::*;
 
     #[test]
-    fn print_sources() {
-        let meta = MetadataCommand::new().exec().unwrap();
-        let sources = get_remote_sources(&meta).unwrap();
-        println!("{sources:#?}");
+    fn print_sources_manually_extract() {
+        let document = fs::read_to_string("Cargo.toml")
+            .expect("Failed to read Cargo.toml")
+            .parse::<toml::Table>().unwrap()
+            ;
+        let sources = get_remote_sources_from_toml_table(&document).unwrap();
+        println!("{sources:#?}");        
     }
 
     #[test]
     fn test_fetch_sources_async() {
+        let fetch_dir = PathBuf::from("test/test_fetch_sources_async");
+        fs::create_dir_all(&fetch_dir).expect("Failed to create directory for fetching sources");
+        let document = fs::read_to_string("Cargo.toml")
+            .expect("Failed to read Cargo.toml")
+            .parse::<toml::Table>().unwrap()
+            ;
+        let sources = get_remote_sources_from_toml_table(&document).unwrap();
         let tok = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
-        let meta = MetadataCommand::new().exec().unwrap();
-        let source_map = get_remote_sources(&meta).unwrap();
-        let futures = source_map
-            .values()
-            .map(fetch_source)
-            .collect::<Vec<_>>();
-        let foo = tok.block_on(async { futures::future::join_all(futures).await });
-        println!("Fetched sources: {foo:#?}");
+        let results = tok.block_on(async {
+            let futures = sources
+                .iter()
+                .map(|(n, s)| fetch_source(n, s, fetch_dir.clone()));
+            futures::future::join_all(futures).await
+        });
+        println!("Fetched sources: {results:#?}");
     }
-
-    // #[test]
-    // fn test_metadata() {
-    //     let meta = MetadataCommand::new().exec().unwrap();
-    //     get_remote_sources(&meta);
-    //     for (key, url) in sources {
-    //         println!("==> fetch {key} from {url}");
-    //     }
-    // }
-
-    // #[test]
-    // fn test_download_tarball() {
-    //     let meta = MetadataCommand::new().exec().unwrap();
-    //     let sources = get_remote_sources(&meta).unwrap();
-    //     for (key, url) in sources {
-    //         println!("==> fetch {key} from {url}");
-    //         let response = get(&url);
-    //         let body = response
-    //             .expect("Failed to fetch the source")
-    //             .bytes()
-    //             .expect("Failed to read the response body");
-    //         let mut out = fs::File::create(format!("{key}.tar.gz")).expect("failed to create file");
-    //         io::copy(&mut body.as_ref(), &mut out).expect("failed to copy content");
-
-    //     }
-    // }
-
-    // #[tokio::test]
-    // async fn test_download_tarball_async() {
-    //     let meta = MetadataCommand::new().exec().unwrap();
-    //     let sources = get_remote_sources(&meta).unwrap();
-    //     for (key, url) in &sources {
-    //         println!("==> async fetch {key} from {url}");
-    //         let response = reqwest::get(url).await.unwrap_or_else(|_| panic!("Failed to fetch {key} from {url}"));
-    //         let body = response
-    //             .bytes()
-    //             .await
-    //             .expect("Failed to read the response body");
-    //         let mut out = fs::File::create(format!("{key}.tar.gz")).expect("failed to create file");
-    //         io::copy(&mut body.as_ref(), &mut out).expect("failed to copy content");
-    //     }
-    // }
 }
