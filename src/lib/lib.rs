@@ -22,6 +22,39 @@ pub enum Error {
     Git2Error(#[from] git2::Error),
 }
 
+enum Artefact {
+    Tarball {
+        size: u64,
+        path: PathBuf,
+    },
+    Repository(git2::Repository),
+}
+
+impl std::fmt::Debug for Artefact {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Tarball{ size, path } => {
+                let mut debug_struct = f.debug_struct("Tarball");
+                debug_struct.field("size", size);
+                debug_struct.field("path", path);
+                debug_struct.finish()
+            },
+            Self::Repository(repo) => {
+                let mut debug_struct = f.debug_struct("Repository");
+                if let Some(workdir) = repo.workdir() {
+                    debug_struct.field("workdir", &workdir.display().to_string());
+                }
+                match repo.head() {
+                    Ok(head) => debug_struct.field("head", &head.name()),
+                    Err(_) => debug_struct.field("head", &"<no head>"),
+                };
+                debug_struct.field("is_bare", &repo.is_bare());
+                debug_struct.finish()
+            }
+        }
+    }
+}
+
 enum Url<'a> {
     Tar(&'a str),
     Git(&'a str),
@@ -82,26 +115,26 @@ fn get_remote_sources_from_toml_table(table: &toml::Table) -> Result<Sources, se
     Ok(sources)
 }
 
-async fn fetch_source<'a>(name: &'a str, source: &'a Source, into_root: PathBuf) -> Result<(&'a str, &'a Source), crate::Error> {
+async fn fetch_source<'a>(name: &'a str, source: &'a Source, into_root: PathBuf) -> Result<(&'a str, Artefact), crate::Error> {
     let result = match source.get_url() {
         Url::Tar(url) => {
-            let dest = fs::File::create(into_root.join(format!("{name}.tar.gz")))?;
-            fetch_tar_source(url, dest).await
+            fetch_tar_source(url, into_root.join(format!("{name}.tar.gz"))).await
         }
         Url::Git(url) => fetch_git_source(url, into_root.join(name))
     };
-    result.map(|_| (name, source))
+    result.map(|artefact| (name, artefact))
 }
 
-async fn fetch_tar_source(url: &str, mut dest: fs::File) -> Result<(), crate::Error> {
+async fn fetch_tar_source(url: &str, path: PathBuf) -> Result<Artefact, crate::Error> {
+    let mut f = fs::File::create(&path)?;
     println!("Fetching tarball: {url}");
     let response = reqwest::get(url).await?; // failed to fetch url
     let body = response.bytes().await?; // failed to read the response body
-    io::copy(&mut body.as_ref(), &mut dest)?; // failed to copy content
-    Ok(())
+    let size = io::copy(&mut body.as_ref(), &mut f)?;
+    Ok(Artefact::Tarball { size, path })
 }
 
-fn fetch_git_source<P>(url: &str, into: P) -> Result<(), crate::Error>
+fn fetch_git_source<P>(url: &str, into: P) -> Result<Artefact, crate::Error>
 where
     P: AsRef<Path>
 {
@@ -112,8 +145,7 @@ where
     callbacks.credentials(prepare_git_credentials);
     fetch_options.remote_callbacks(callbacks);
     builder.fetch_options(fetch_options);
-    builder.clone(url, into.as_ref())?;  // Convert to &Path
-    Ok(())
+    Ok(Artefact::Repository(builder.clone(url, into.as_ref())?))
 }
 
 fn prepare_git_credentials(
