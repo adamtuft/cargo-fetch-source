@@ -24,6 +24,11 @@ toml = "0.9.1"
 url = "2.5.4"
 
 [package.metadata.fetch-source]
-otf2 = { tar = "https://zenodo.org/records/4682684/files/otf2-2.3.tar.gz" }
-dotfiles = { git = "git@github.com:adamtuft/dotfiles.git" }
-dotfiles-recursive = { git = "git@github.com:adamtuft/dotfiles.git", branch = "cosma", recursive = true }
+# otf2 = { tar = "https://zenodo.org/records/4682684/files/otf2-2.3.tar.gz" }
+# dotfiles = { git = "git@github.com:adamtuft/dotfiles.git" }
+# dotfiles-cosma = { git = "git@github.com:adamtuft/dotfiles.git", branch = "cosma" }
+# dotfiles-hamilton = { git = "git@github.com:adamtuft/dotfiles.git", branch = "hamilton" }
+# dotfiles-hp = { git = "git@github.com:adamtuft/dotfiles.git", branch = "hp-probook-atuft" }
+# dotfiles-no-branch = { git = "git@github.com:adamtuft/dotfiles.git", branch = "not-a-branch" }
+dotfiles-commit-short = { git = "git@github.com:adamtuft/dotfiles.git", rev = "fafd64a" }
+dotfiles-commit-long = { git = "git@github.com:adamtuft/dotfiles.git", rev = "82fbfb0fe2b037676610710069325f703613935f" }

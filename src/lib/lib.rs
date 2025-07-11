@@ -22,35 +22,33 @@ pub enum Error {
     Git2Error(#[from] git2::Error),
     #[error(transparent)]
     UrlParseError(#[from] url::ParseError),
+    #[error("Manual error: {0}")]
+    Manual(String),
 }
 
 enum Artefact {
-    Tarball {
-        size: u64,
-        path: PathBuf,
-    },
+    Tarball { size: u64, path: PathBuf },
     Repository(git2::Repository),
 }
 
 impl std::fmt::Debug for Artefact {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Tarball{ size, path } => {
+            Self::Tarball { size, path } => {
                 let mut debug_struct = f.debug_struct("Tarball");
                 debug_struct.field("size", size);
                 debug_struct.field("path", path);
                 debug_struct.finish()
-            },
+            }
             Self::Repository(repo) => {
                 let mut debug_struct = f.debug_struct("Repository");
                 if let Some(workdir) = repo.workdir() {
                     debug_struct.field("workdir", &workdir.display().to_string());
                 }
                 match repo.head() {
-                    Ok(head) => debug_struct.field("head", &head.name()),
+                    Ok(head) => debug_struct.field("head", &head.target()),
                     Err(_) => debug_struct.field("head", &"<no head>"),
                 };
-                debug_struct.field("is_bare", &repo.is_bare());
                 debug_struct.finish()
             }
         }
@@ -89,6 +87,34 @@ trait Fetch {
     fn fetch(&self, name: &str, dir: PathBuf) -> Result<Artefact, crate::Error>;
 }
 
+trait RepositoryExt {
+    fn find_object_from_commit_sha(&self, commit_sha: &str) -> Result<git2::Object, git2::Error>;
+    fn clone_into(url: &str, branch: Option<&str>, into: &Path) -> Result<git2::Repository, git2::Error>;
+}
+
+impl RepositoryExt for git2::Repository {
+    fn find_object_from_commit_sha(&self, sha: &str) -> Result<git2::Object, git2::Error> {
+        if sha.len() < 40 {
+            self.revparse_single(sha)
+        } else {
+            self.find_object_by_prefix(sha, Some(git2::ObjectType::Commit))
+        }
+    }
+
+    fn clone_into(url: &str, branch: Option<&str>, into: &Path) -> Result<git2::Repository, git2::Error> {
+        let mut callbacks = git2::RemoteCallbacks::new();
+        callbacks.credentials(prepare_git_credentials);
+        let mut fetch_options = git2::FetchOptions::new();
+        fetch_options.remote_callbacks(callbacks);
+        let mut builder = git2::build::RepoBuilder::new();
+        builder.fetch_options(fetch_options);
+        if let Some(branch) = branch {
+            builder.branch(branch);
+        }
+        builder.clone(url, into)
+    }
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct TarSource {
     #[serde(rename = "tar")]
@@ -96,7 +122,6 @@ struct TarSource {
 }
 
 impl TarSource {
-
     fn fetch_blocking_impl(url: &str, path: PathBuf) -> Result<Artefact, crate::Error> {
         let mut f = fs::File::create(&path)?;
         let response = reqwest::blocking::get(url)?;
@@ -115,12 +140,12 @@ impl TarSource {
 
     async fn fetch_async(&self, dir: PathBuf) -> Result<Artefact, crate::Error> {
         let parsed = url::Url::parse(&self.url)?;
-        let filename = parsed.path_segments()
+        let filename = parsed
+            .path_segments()
             .and_then(|mut s| s.next_back())
             .expect("The URL should end in a filename");
         Self::fetch_async_impl(&self.url, dir.join(filename)).await
     }
-
 }
 
 impl GetUrl for TarSource {
@@ -132,7 +157,8 @@ impl GetUrl for TarSource {
 impl Fetch for TarSource {
     fn fetch(&self, _: &str, dir: PathBuf) -> Result<Artefact, crate::Error> {
         let parsed = url::Url::parse(&self.url)?;
-        let filename = parsed.path_segments()
+        let filename = parsed
+            .path_segments()
             .and_then(|mut s| s.next_back())
             .expect("The URL should end in a filename");
         Self::fetch_blocking_impl(&self.url, dir.join(filename))
@@ -147,6 +173,23 @@ enum GitReference {
     Tag(String),
     #[serde(rename = "rev")]
     Rev(String),
+}
+
+impl GitReference {
+    fn as_branch_name(&self) -> Option<&str> {
+        match self {
+            GitReference::Branch(name) | GitReference::Tag(name) => {
+                Some(name)
+            }
+            GitReference::Rev(_) => None
+        }
+    }
+    fn as_commit_sha(&self) -> Option<&str> {
+        match self {
+            GitReference::Branch(name) | GitReference::Tag(name) => None,
+            GitReference::Rev(commit_sha) => Some(commit_sha),
+        }
+    }
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -164,6 +207,22 @@ impl GitSource {
         self.recursive
     }
 
+    fn branch_name(&self) -> Option<&str> {
+        match self.reference.as_ref() {
+            Some(GitReference::Branch(name)) | Some(GitReference::Tag(name)) => {
+                Some(name)
+            }
+            _ => None
+        }
+    }
+
+    fn commit_sha(&self) -> Option<&str> {
+        match self.reference.as_ref() {
+            Some(GitReference::Rev(commit_sha)) => Some(commit_sha),
+            _ => None,
+        }
+    }
+
     fn checkout_submodule(submodule: &mut git2::Submodule) -> Result<(), crate::Error> {
         let mut callbacks = git2::RemoteCallbacks::new();
         callbacks.credentials(prepare_git_credentials);
@@ -174,7 +233,10 @@ impl GitSource {
         Ok(submodule.update(true, Some(&mut update_options))?)
     }
 
-    fn checkout_submodules_recursive(submodule: &mut git2::Submodule, top_level: PathBuf) -> Result<(), crate::Error> {
+    fn checkout_submodules_recursive(
+        submodule: &mut git2::Submodule,
+        top_level: PathBuf,
+    ) -> Result<(), crate::Error> {
         let p = top_level.join(submodule.path());
         println!("Updating submodule at: {p:?}");
         let subrepository = git2::Repository::open(&p)?;
@@ -194,13 +256,22 @@ impl GetUrl for GitSource {
 
 impl Fetch for GitSource {
     fn fetch(&self, name: &str, dir: PathBuf) -> Result<Artefact, crate::Error> {
-        let mut builder = git2::build::RepoBuilder::new();
-        let mut fetch_options = git2::FetchOptions::new();
-        let mut callbacks = git2::RemoteCallbacks::new();
-        callbacks.credentials(prepare_git_credentials);
-        fetch_options.remote_callbacks(callbacks);
-        builder.fetch_options(fetch_options);
-        let repo = builder.clone(&self.url, &dir.join(name))?;
+        // let mut callbacks = git2::RemoteCallbacks::new();
+        // callbacks.credentials(prepare_git_credentials);
+        // let mut fetch_options = git2::FetchOptions::new();
+        // fetch_options.remote_callbacks(callbacks);
+        // let mut builder = git2::build::RepoBuilder::new();
+        // builder.fetch_options(fetch_options);
+        // if let Some(branch) = self.branch_name() {
+        //     builder.branch(branch);
+        // }
+        let repo = git2::Repository::clone_into(&self.url, self.branch_name(), &dir.join(name))?;
+        if let Some(commit_sha) = self.commit_sha() {
+            let mut checkout_builder = git2::build::CheckoutBuilder::new();
+            let commit = repo.find_object_from_commit_sha(commit_sha)?;
+            repo.set_head_detached(commit.id())?;
+            repo.checkout_tree(&commit, Some(&mut checkout_builder))?;
+        }
         if self.recursive {
             for mut submodule in repo.submodules()? {
                 Self::checkout_submodule(&mut submodule)?;
@@ -218,29 +289,27 @@ enum Source {
     Git(GitSource),
 }
 
-impl Source {
-    pub fn get_url(&self) -> Url<'_> {
-        match self {
-            Source::Tar(s) => Url::Tar(&s.url),
-            Source::Git(s) => Url::Git(&s.url),
-        }
-    }
-}
-
 type Sources = HashMap<String, Source>;
 
 fn get_remote_sources_from_toml_table(table: &toml::Table) -> Result<Sources, serde_json::Error> {
     let sources: Sources = table
-        .get("package").unwrap()
-        .get("metadata").unwrap()
-        .get("fetch-source").unwrap()
+        .get("package")
+        .unwrap()
+        .get("metadata")
+        .unwrap()
+        .get("fetch-source")
+        .unwrap()
         .to_owned()
         .try_into()
         .unwrap();
     Ok(sources)
 }
 
-async fn fetch_source<'a>(name: &'a str, source: &'a Source, dir: PathBuf) -> Result<(&'a str, Artefact), crate::Error> {
+async fn fetch_source<'a>(
+    name: &'a str,
+    source: &'a Source,
+    dir: PathBuf,
+) -> Result<(&'a str, Artefact), crate::Error> {
     let result = match source {
         Source::Tar(tar) => tar.fetch_async(dir).await,
         Source::Git(git) => {
@@ -250,12 +319,16 @@ async fn fetch_source<'a>(name: &'a str, source: &'a Source, dir: PathBuf) -> Re
                 println!("Fetching git source from: {}", git.url());
             }
             git.fetch(name, dir)
-        },
+        }
     };
     result.map(|artefact| (name, artefact))
 }
 
-fn fetch_source_blocking<'a>(name: &'a str, source: &'a Source, dir: PathBuf) -> Result<(&'a str, Artefact), crate::Error> {
+fn fetch_source_blocking<'a>(
+    name: &'a str,
+    source: &'a Source,
+    dir: PathBuf,
+) -> Result<(&'a str, Artefact), crate::Error> {
     let result = match source {
         Source::Tar(tar) => tar.fetch(name, dir),
         Source::Git(git) => {
@@ -265,7 +338,7 @@ fn fetch_source_blocking<'a>(name: &'a str, source: &'a Source, dir: PathBuf) ->
                 println!("Fetching git source from: {}", git.url());
             }
             git.fetch(name, dir)
-        },
+        }
     };
     result.map(|artefact| (name, artefact))
 }
@@ -293,7 +366,9 @@ fn prepare_git_credentials(
             rpassword::prompt_password(format!("Enter password/PAT for {username}: ")).unwrap();
         git2::Cred::userpass_plaintext(&username, &password)
     } else {
-        Err(git2::Error::from_str("Unsupported credential type, expected ssh or plaintext"))
+        Err(git2::Error::from_str(
+            "Unsupported credential type, expected ssh or plaintext",
+        ))
     }
 }
 
@@ -305,10 +380,10 @@ mod tests {
     fn print_sources_manually_extract() {
         let document = fs::read_to_string("Cargo.toml")
             .expect("Failed to read Cargo.toml")
-            .parse::<toml::Table>().unwrap()
-            ;
+            .parse::<toml::Table>()
+            .unwrap();
         let sources = get_remote_sources_from_toml_table(&document).unwrap();
-        println!("{sources:#?}");        
+        println!("{sources:#?}");
     }
 
     #[test]
@@ -317,8 +392,8 @@ mod tests {
         fs::create_dir_all(&fetch_dir).expect("Failed to create directory for fetching sources");
         let document = fs::read_to_string("Cargo.toml")
             .expect("Failed to read Cargo.toml")
-            .parse::<toml::Table>().unwrap()
-            ;
+            .parse::<toml::Table>()
+            .unwrap();
         let sources = get_remote_sources_from_toml_table(&document).unwrap();
         let tok = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
         let results = tok.block_on(async {
@@ -336,8 +411,8 @@ mod tests {
         fs::create_dir_all(&fetch_dir).expect("Failed to create directory for fetching sources");
         let document = fs::read_to_string("Cargo.toml")
             .expect("Failed to read Cargo.toml")
-            .parse::<toml::Table>().unwrap()
-            ;
+            .parse::<toml::Table>()
+            .unwrap();
         let sources = get_remote_sources_from_toml_table(&document).unwrap();
         let results = sources
             .iter()
