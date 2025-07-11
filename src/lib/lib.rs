@@ -101,7 +101,10 @@ async fn fetch_tar_source(url: &str, mut dest: fs::File) -> Result<(), crate::Er
     Ok(())
 }
 
-fn fetch_git_source(url: &str, into: PathBuf) -> Result<(), crate::Error> {
+fn fetch_git_source<P>(url: &str, into: P) -> Result<(), crate::Error>
+where
+    P: AsRef<Path>
+{
     println!("Fetching git source from: {url}");
     let mut builder = git2::build::RepoBuilder::new();
     let mut fetch_options = git2::FetchOptions::new();
@@ -109,7 +112,7 @@ fn fetch_git_source(url: &str, into: PathBuf) -> Result<(), crate::Error> {
     callbacks.credentials(prepare_git_credentials);
     fetch_options.remote_callbacks(callbacks);
     builder.fetch_options(fetch_options);
-    builder.clone(url, &into)?;
+    builder.clone(url, into.as_ref())?;  // Convert to &Path
     Ok(())
 }
 
