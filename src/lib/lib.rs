@@ -90,6 +90,10 @@ trait Fetch {
 trait RepositoryExt {
     fn find_object_from_commit_sha(&self, commit_sha: &str) -> Result<git2::Object, git2::Error>;
     fn clone_into(url: &str, branch: Option<&str>, into: &Path) -> Result<git2::Repository, git2::Error>;
+    fn checkout_commit(&self, sha: &str) -> Result<(), git2::Error>;
+    fn update_submodules_recursive(&self) -> Result<(), git2::Error>;
+    fn update_submodule(&self, submodule: &mut git2::Submodule) -> Result<(), git2::Error>;
+    fn get_submodule_repository(&self, submodule: &git2::Submodule, top_level: PathBuf) -> Result<git2::Repository, git2::Error>;
 }
 
 impl RepositoryExt for git2::Repository {
@@ -112,6 +116,38 @@ impl RepositoryExt for git2::Repository {
             builder.branch(branch);
         }
         builder.clone(url, into)
+    }
+    
+    fn checkout_commit(&self, sha: &str) -> Result<(), git2::Error> {
+        let mut checkout_builder = git2::build::CheckoutBuilder::new();
+        let commit = self.find_object_from_commit_sha(sha)?;
+        self.set_head_detached(commit.id())?;
+        self.checkout_tree(&commit, Some(&mut checkout_builder))
+    }
+
+    fn update_submodules_recursive(&self) -> Result<(), git2::Error> {
+        for mut submodule in self.submodules()? {
+            self.update_submodule(&mut submodule)?;
+            if let Some(workdir) = self.workdir() {
+                let repo = self.get_submodule_repository(&submodule, workdir.to_path_buf())?;
+                repo.update_submodules_recursive()?;
+            }
+        }
+        Ok(())
+    }
+
+    fn update_submodule(&self, submodule: &mut git2::Submodule) -> Result<(), git2::Error> {
+        let mut callbacks = git2::RemoteCallbacks::new();
+        callbacks.credentials(prepare_git_credentials);
+        let mut update_fetch_options = git2::FetchOptions::new();
+        update_fetch_options.remote_callbacks(callbacks);
+        let mut update_options = git2::SubmoduleUpdateOptions::new();
+        update_options.fetch(update_fetch_options);
+        submodule.update(true, Some(&mut update_options))
+    }
+
+    fn get_submodule_repository(&self, submodule: &git2::Submodule, top_level: PathBuf) -> Result<git2::Repository, git2::Error> {
+        git2::Repository::open(top_level.join(submodule.path()))
     }
 }
 
@@ -222,30 +258,6 @@ impl GitSource {
             _ => None,
         }
     }
-
-    fn checkout_submodule(submodule: &mut git2::Submodule) -> Result<(), crate::Error> {
-        let mut callbacks = git2::RemoteCallbacks::new();
-        callbacks.credentials(prepare_git_credentials);
-        let mut update_fetch_options = git2::FetchOptions::new();
-        update_fetch_options.remote_callbacks(callbacks);
-        let mut update_options = git2::SubmoduleUpdateOptions::new();
-        update_options.fetch(update_fetch_options);
-        Ok(submodule.update(true, Some(&mut update_options))?)
-    }
-
-    fn checkout_submodules_recursive(
-        submodule: &mut git2::Submodule,
-        top_level: PathBuf,
-    ) -> Result<(), crate::Error> {
-        let p = top_level.join(submodule.path());
-        println!("Updating submodule at: {p:?}");
-        let subrepository = git2::Repository::open(&p)?;
-        for mut submodule in subrepository.submodules()? {
-            Self::checkout_submodule(&mut submodule)?;
-            Self::checkout_submodules_recursive(&mut submodule, p.clone())?;
-        }
-        Ok(())
-    }
 }
 
 impl GetUrl for GitSource {
@@ -256,27 +268,12 @@ impl GetUrl for GitSource {
 
 impl Fetch for GitSource {
     fn fetch(&self, name: &str, dir: PathBuf) -> Result<Artefact, crate::Error> {
-        // let mut callbacks = git2::RemoteCallbacks::new();
-        // callbacks.credentials(prepare_git_credentials);
-        // let mut fetch_options = git2::FetchOptions::new();
-        // fetch_options.remote_callbacks(callbacks);
-        // let mut builder = git2::build::RepoBuilder::new();
-        // builder.fetch_options(fetch_options);
-        // if let Some(branch) = self.branch_name() {
-        //     builder.branch(branch);
-        // }
         let repo = git2::Repository::clone_into(&self.url, self.branch_name(), &dir.join(name))?;
         if let Some(commit_sha) = self.commit_sha() {
-            let mut checkout_builder = git2::build::CheckoutBuilder::new();
-            let commit = repo.find_object_from_commit_sha(commit_sha)?;
-            repo.set_head_detached(commit.id())?;
-            repo.checkout_tree(&commit, Some(&mut checkout_builder))?;
+            repo.checkout_commit(commit_sha)?;
         }
         if self.recursive {
-            for mut submodule in repo.submodules()? {
-                Self::checkout_submodule(&mut submodule)?;
-                Self::checkout_submodules_recursive(&mut submodule, dir.join(name))?;
-            }
+            repo.update_submodules_recursive()?;
         }
         Ok(Artefact::Repository(repo))
     }
