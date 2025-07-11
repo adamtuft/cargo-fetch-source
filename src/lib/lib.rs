@@ -92,8 +92,6 @@ trait RepositoryExt {
     fn clone_into(url: &str, branch: Option<&str>, into: &Path) -> Result<git2::Repository, git2::Error>;
     fn checkout_commit(&self, sha: &str) -> Result<(), git2::Error>;
     fn update_submodules_recursive(&self) -> Result<(), git2::Error>;
-    fn update_submodule(&self, submodule: &mut git2::Submodule) -> Result<(), git2::Error>;
-    fn get_submodule_repository(&self, submodule: &git2::Submodule, top_level: PathBuf) -> Result<git2::Repository, git2::Error>;
 }
 
 impl RepositoryExt for git2::Repository {
@@ -127,27 +125,39 @@ impl RepositoryExt for git2::Repository {
 
     fn update_submodules_recursive(&self) -> Result<(), git2::Error> {
         for mut submodule in self.submodules()? {
-            self.update_submodule(&mut submodule)?;
+            submodule.update_with(prepare_git_credentials)?;
             if let Some(workdir) = self.workdir() {
-                let repo = self.get_submodule_repository(&submodule, workdir.to_path_buf())?;
+                let repo = submodule.get_repository(workdir.to_path_buf())?;
                 repo.update_submodules_recursive()?;
             }
         }
         Ok(())
     }
+}
 
-    fn update_submodule(&self, submodule: &mut git2::Submodule) -> Result<(), git2::Error> {
+trait SubmoduleExt {
+    fn update_with<F>(&mut self, f: F) -> Result<(), git2::Error>
+    where
+        F: Fn(&str, Option<&str>, git2::CredentialType) -> Result<git2::Cred, git2::Error>;
+    fn get_repository(&self, top_level: PathBuf) -> Result<git2::Repository, git2::Error>;
+}
+
+impl<'a> SubmoduleExt for git2::Submodule<'a> {
+    fn update_with<F>(&mut self, fetch_credentials: F) -> Result<(), git2::Error>
+    where
+        F: Fn(&str, Option<&str>, git2::CredentialType) -> Result<git2::Cred, git2::Error>,
+    {
         let mut callbacks = git2::RemoteCallbacks::new();
-        callbacks.credentials(prepare_git_credentials);
+        callbacks.credentials(fetch_credentials);
         let mut update_fetch_options = git2::FetchOptions::new();
         update_fetch_options.remote_callbacks(callbacks);
         let mut update_options = git2::SubmoduleUpdateOptions::new();
         update_options.fetch(update_fetch_options);
-        submodule.update(true, Some(&mut update_options))
+        self.update(true, Some(&mut update_options))
     }
 
-    fn get_submodule_repository(&self, submodule: &git2::Submodule, top_level: PathBuf) -> Result<git2::Repository, git2::Error> {
-        git2::Repository::open(top_level.join(submodule.path()))
+    fn get_repository(&self, top_level: PathBuf) -> Result<git2::Repository, git2::Error> {
+        git2::Repository::open(top_level.join(self.path()))
     }
 }
 
