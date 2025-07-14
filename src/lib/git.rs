@@ -86,3 +86,49 @@ impl Fetch for GitSource {
         Ok(Artefact::Repository(repo))
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::process as proc;
+
+    fn git_clone(url: &str, name: &str, reference: Option<GitReference>, recursive: bool) -> proc::Command {
+        let mut git = proc::Command::new("git");
+        git.arg("clone");
+        match &reference {
+            Some(GitReference::Branch(s)) | Some(GitReference::Tag(s)) => {
+                git.arg("-b").arg(s);
+            }
+            Some(GitReference::Rev(s)) => {
+                git.arg("--revision").arg(s);
+            }
+            None => {}
+        }
+        if recursive {
+            git.arg("--recurse-submodules");
+        }
+        git.arg(url)
+            .arg(format!("test/test_git_clone_subprocess/{name}"));
+        git
+    }
+            
+    
+    #[test]
+    fn test_git_clone_subprocess() {
+        let document = std::fs::read_to_string("Cargo.toml")
+            .expect("Failed to read Cargo.toml")
+            .parse::<toml::Table>()
+            .unwrap();
+        let sources = crate::source::get_remote_sources_from_toml_table(&document).unwrap();
+        for (name, source) in &sources {
+            
+        }
+        let url = "git@github.com:adamtuft/dotfiles.git";
+        let r = git_clone(url, "dotfiles", None, false).status().expect("Failed to execute git clone");
+        println!("{r:?}");
+        let r = git_clone(url, "dotfiles-cosma", Some(GitReference::Branch("cosma".to_string())), false).status().expect("Failed to execute git clone");
+        println!("{r:?}");
+        let r = git_clone(url, "dotfiles-fafd64a", Some(GitReference::Rev("82fbfb0fe2b037676610710069325f703613935f".to_string())), true).status().expect("Failed to execute git clone");
+        println!("{r:?}");
+    }
+}
