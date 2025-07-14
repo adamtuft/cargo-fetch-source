@@ -1,35 +1,3 @@
-[package]
-name = "cargo-fetch-source"
-version = "0.1.0"
-edition = "2024"
-
-[lib]
-name = "fetch_source"
-path = "src/lib/lib.rs"
-
-[[bin]]
-name = "cargo-fetch-source"
-path = "src/bin/cargo-fetch-source.rs"
-
-[dependencies]
-futures = { version = "0.3.31", features = ["futures-executor"] }
-git2 = "0.20.2"
-indicatif = "0.18.0"
-reqwest = { version = "0.12.22", features = ["blocking"] }
-rpassword = "7.4.0"
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.140"
-thiserror = "2.0.12"
-tokio = { version = "1.46.1", features = ["rt-multi-thread"] }
-toml = "0.9.1"
-url = "2.5.4"
-
-[package.metadata.fetch-source]
-otf2 = { tar = "https://zenodo.org/records/4682684/files/otf2-2.3.tar.gz" }
-dotfiles = { git = "git@github.com:adamtuft/dotfiles.git" }
-dotfiles-cosma = { git = "git@github.com:adamtuft/dotfiles.git", branch = "cosma" }
-dotfiles-hamilton = { git = "git@github.com:adamtuft/dotfiles.git", branch = "hamilton", recursive = true }
-dotfiles-hp = { git = "git@github.com:adamtuft/dotfiles.git", branch = "hp-probook-atuft" }
-dotfiles-commit-long = { git = "git@github.com:adamtuft/dotfiles.git", rev = "82fbfb0fe2b037676610710069325f703613935f" }
-dotfiles-no-branch = { git = "git@github.com:adamtuft/dotfiles.git", branch = "not-a-branch" }
-dotfiles-commit-short = { git = "git@github.com:adamtuft/dotfiles.git", rev = "fafd64a", recursive = false }
+[workspace]
+resolver = "3"
+members = [ "cargo-fetch-source","cargo-fetch-source-lib"]
