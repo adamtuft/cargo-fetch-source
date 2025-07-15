@@ -1,6 +1,7 @@
+use std::io::Read;
+
 use crate::Fetch;
 use crate::artefact::Artefact;
-use crate::git2_ext::{Repository, RepositoryExt};
 
 #[derive(Debug, serde::Deserialize)]
 pub(crate) enum GitReference {
@@ -10,21 +11,6 @@ pub(crate) enum GitReference {
     Tag(String),
     #[serde(rename = "rev")]
     Rev(String),
-}
-
-impl GitReference {
-    fn as_branch_name(&self) -> Option<&str> {
-        match self {
-            GitReference::Branch(name) | GitReference::Tag(name) => Some(name),
-            GitReference::Rev(_) => None,
-        }
-    }
-    fn as_commit_sha(&self) -> Option<&str> {
-        match self {
-            GitReference::Branch(name) | GitReference::Tag(name) => None,
-            GitReference::Rev(commit_sha) => Some(commit_sha),
-        }
-    }
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -42,14 +28,14 @@ impl GitSource {
         self.recursive
     }
 
-    fn branch_name(&self) -> Option<&str> {
+    pub fn branch_name(&self) -> Option<&str> {
         match self.reference.as_ref() {
             Some(GitReference::Branch(name)) | Some(GitReference::Tag(name)) => Some(name),
             _ => None,
         }
     }
 
-    fn commit_sha(&self) -> Option<&str> {
+    pub fn commit_sha(&self) -> Option<&str> {
         match self.reference.as_ref() {
             Some(GitReference::Rev(commit_sha)) => Some(commit_sha),
             _ => None,
@@ -76,13 +62,18 @@ impl std::fmt::Display for GitSource {
 
 impl Fetch for GitSource {
     fn fetch(&self, name: &str, dir: std::path::PathBuf) -> Result<Artefact, crate::Error> {
-        let repo = Repository::clone_into(&self.url, self.branch_name(), &dir.join(name))?;
-        if let Some(commit_sha) = self.commit_sha() {
-            repo.checkout_commit(commit_sha)?;
+        let repo = dir.join(name);
+        let mut proc = crate::process::git_clone_task(self, &repo).spawn()?;
+        let status = proc.wait()?;
+        if status.success() {
+            Ok(Artefact::Repository(repo))
+        } else {
+            let mut stderr = String::new();
+            if let Some(mut stderr_pipe) = proc.stderr.take() {
+                stderr_pipe.read_to_string(&mut stderr)?;
+            }
+            let command = format!("git clone {self}");
+            Err(crate::Error::Subprocess { status, command, stderr })
         }
-        if self.recursive {
-            repo.update_submodules_recursive()?;
-        }
-        Ok(Artefact::Repository(repo))
     }
 }

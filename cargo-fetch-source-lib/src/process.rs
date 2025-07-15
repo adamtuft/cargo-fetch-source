@@ -12,20 +12,15 @@ impl Source {
     }
 }
 
-fn git_clone_task<P: AsRef<std::path::Path>>(source: &GitSource, into: P) -> Command {
-    use GitReference as Git;
+pub(crate) fn git_clone_task<P: AsRef<std::path::Path>>(source: &GitSource, into: P) -> Command {
     let mut git = Command::new("git");
     git.args(["clone", "--depth", "1", "--no-tags"]);
-    match &source.reference {
-        Some(Git::Branch(s)) | Some(Git::Tag(s)) => {
-            git.args(["--branch", s]);
-        }
-        Some(Git::Rev(s)) => {
-            git.args(["--revision", s]);
-        }
-        None => {}
+    if let Some(branch) = source.branch_name() {
+        git.args(["--branch", branch]);
+    } else if let Some(commit_sha) = source.commit_sha() {
+        git.args(["--revision", commit_sha]);
     }
-    if source.recursive {
+    if source.is_recursive() {
         git.args(["--recurse-submodules", "--shallow-submodules"]);
     }
     git.arg(&source.url).arg(into.as_ref());

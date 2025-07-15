@@ -1,4 +1,4 @@
-use crate::git2_ext;
+// use crate::git2_ext;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -9,9 +9,13 @@ pub enum Error {
     #[error(transparent)]
     SerdeJsonError(#[from] serde_json::Error),
     #[error(transparent)]
-    Git2Error(#[from] git2_ext::Error),
-    #[error(transparent)]
     UrlParseError(#[from] url::ParseError),
     #[error("Manual error: {0}")]
     Manual(String),
+    #[error("Command '{command}' exited with status {status}\n{stderr}")]
+    Subprocess{
+        command: String,
+        status: std::process::ExitStatus,
+        stderr: String,
+    }
 }
