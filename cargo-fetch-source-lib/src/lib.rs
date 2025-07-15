@@ -5,6 +5,7 @@ mod git2_ext;
 mod tar;
 use error::Error;
 mod source;
+mod process;
 
 // ! TODO: want to have this implemented for enum source::Source as a match-block that calls
 // ! out to each variant's logic. Don't need this to be a trait.

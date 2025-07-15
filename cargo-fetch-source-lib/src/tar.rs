@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::{fs, io};
+use std::process::{Command, Stdio};
 
 use crate::Fetch;
 use crate::artefact::Artefact;
@@ -34,6 +35,9 @@ impl TarSource {
         let body = response.bytes().await?;
         let size = io::copy(&mut body.as_ref(), &mut f)?;
         Ok(Artefact::Tarball { size, path })
+    }
+
+    pub fn make_task<P: AsRef<std::path::Path>>(&self, root: P) -> Command {
     }
 }
 

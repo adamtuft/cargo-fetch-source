@@ -8,6 +8,7 @@ name = "fetch_source"
 path = "src/lib.rs"
 
 [dependencies]
+# TODO: remove deps only used by the binary rather than the library
 futures = { version = "0.3.31", features = ["futures-executor"] }
 git2 = "0.20.2"
 indicatif = "0.18.0"
