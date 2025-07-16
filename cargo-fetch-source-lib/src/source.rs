@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::Fetch;
 use crate::artefact::Artefact;
 use crate::git::GitSource;
 use crate::tar::TarSource;
@@ -11,6 +10,15 @@ use crate::tar::TarSource;
 pub(crate) enum Source {
     Tar(TarSource),
     Git(GitSource),
+}
+
+impl Source {
+    fn fetch(&self, name: &str, dir: PathBuf) -> Result<Artefact, crate::Error> {
+        match self {
+            Source::Tar(tar) => tar.fetch(name, dir),
+            Source::Git(git) => git.fetch(name, dir),
+        }
+    }
 }
 
 pub(crate) type Sources = HashMap<String, Source>;
@@ -31,32 +39,12 @@ pub(crate) fn get_remote_sources_from_toml_table(
     Ok(sources)
 }
 
-// pub(crate) async fn fetch_source<'a>(
-//     name: &'a str,
-//     source: &'a Source,
-//     dir: PathBuf,
-// ) -> Result<(&'a str, Artefact), crate::Error> {
-//     let result = match source {
-//         Source::Tar(tar) => tar.fetch_async(dir).await,
-//         Source::Git(git) => {
-//             println!("Fetching git source from: {git}");
-//             git.fetch(name, dir)
-//         }
-//     };
-//     result.map(|artefact| (name, artefact))
-// }
-
 pub(crate) fn fetch_source_blocking<'a>(
     name: &'a str,
     source: &'a Source,
     dir: PathBuf,
 ) -> Result<(&'a str, Artefact), crate::Error> {
-    let result = match source {
-        Source::Tar(tar) => tar.fetch(name, dir),
-        Source::Git(git) => {
-            println!("Fetching git source from: {git}");
-            git.fetch(name, dir)
-        }
-    };
-    result.map(|artefact| (name, artefact))
+    source
+        .fetch(name, dir)
+        .map(|artefact| (name, artefact))
 }

@@ -1,6 +1,5 @@
 use std::io::Read;
 
-use crate::Fetch;
 use crate::artefact::Artefact;
 
 #[derive(Debug, serde::Deserialize)]
@@ -41,6 +40,23 @@ impl GitSource {
             _ => None,
         }
     }
+
+    pub fn fetch(&self, name: &str, dir: std::path::PathBuf) -> Result<Artefact, crate::Error> {
+        let repo = dir.join(name);
+        let mut proc = crate::process::git_clone_task(self, &repo).spawn()?;
+        let status = proc.wait()?;
+        if status.success() {
+            Ok(Artefact::Repository(repo))
+        } else {
+            let mut stderr = String::new();
+            if let Some(mut stderr_pipe) = proc.stderr.take() {
+                stderr_pipe.read_to_string(&mut stderr)?;
+            }
+            let command = format!("git clone {self}");
+            Err(crate::Error::Subprocess { status, command, stderr })
+        }
+    }
+
 }
 
 impl std::fmt::Display for GitSource {
@@ -57,23 +73,5 @@ impl std::fmt::Display for GitSource {
             write!(f, " [recursive]")?;
         }
         Ok(())
-    }
-}
-
-impl Fetch for GitSource {
-    fn fetch(&self, name: &str, dir: std::path::PathBuf) -> Result<Artefact, crate::Error> {
-        let repo = dir.join(name);
-        let mut proc = crate::process::git_clone_task(self, &repo).spawn()?;
-        let status = proc.wait()?;
-        if status.success() {
-            Ok(Artefact::Repository(repo))
-        } else {
-            let mut stderr = String::new();
-            if let Some(mut stderr_pipe) = proc.stderr.take() {
-                stderr_pipe.read_to_string(&mut stderr)?;
-            }
-            let command = format!("git clone {self}");
-            Err(crate::Error::Subprocess { status, command, stderr })
-        }
     }
 }

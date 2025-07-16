@@ -7,16 +7,6 @@ mod process;
 
 use error::Error;
 
-// ! TODO: want to have this implemented for enum source::Source as a match-block that calls
-// ! out to each variant's logic. Don't need this to be a trait.
-trait Fetch {
-    fn fetch(
-        &self,
-        name: &str,
-        dir: std::path::PathBuf,
-    ) -> Result<artefact::Artefact, crate::Error>;
-}
-
 #[cfg(test)]
 mod tests {
     use super::source::{fetch_source_blocking, get_remote_sources_from_toml_table};

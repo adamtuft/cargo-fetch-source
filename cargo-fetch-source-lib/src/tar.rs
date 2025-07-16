@@ -4,7 +4,6 @@ use std::{fs, io};
 use tar::Archive;
 use flate2::read::GzDecoder;
 
-use crate::Fetch;
 use crate::artefact::Artefact;
 
 #[derive(Debug, serde::Deserialize)]
@@ -13,35 +12,15 @@ pub(crate) struct TarSource {
     url: String,
 }
 
-// impl TarSource {
-//     pub(crate) async fn fetch_async(&self, dir: PathBuf) -> Result<Artefact, crate::Error> {
-//         let parsed = url::Url::parse(&self.url)?;
-//         let filename = parsed
-//             .path_segments()
-//             .and_then(|mut s| s.next_back())
-//             .expect("The URL should end in a filename");
-//         Self::fetch_async_impl(&self.url, dir.join(filename)).await
-//     }
-
-//     fn fetch_into_buf_blocking_impl<W: Write>(url: &str, mut buf: W) -> Result<u64, crate::Error> {
-//         let bytes = reqwest::blocking::get(url)?.bytes()?;
-//         Ok(io::copy(&mut bytes.as_ref(), &mut buf)?)
-//     }
-
-//     fn fetch_blocking_impl(url: &str, path: PathBuf) -> Result<Artefact, crate::Error> {
-//         let mut f = fs::File::create(&path)?;
-//         let size = Self::fetch_into_buf_blocking_impl(url, &mut f)?;
-//         Ok(Artefact::Tarball { size, path })
-//     }
-
-//     async fn fetch_async_impl(url: &str, path: PathBuf) -> Result<Artefact, crate::Error> {
-//         let mut f = fs::File::create(&path)?;
-//         let response = reqwest::get(url).await?;
-//         let body = response.bytes().await?;
-//         let size = io::copy(&mut body.as_ref(), &mut f)?;
-//         Ok(Artefact::Tarball { size, path })
-//     }
-// }
+impl TarSource {
+    pub fn fetch(&self, _: &str, dir: PathBuf) -> Result<Artefact, crate::Error> {
+        let mut compressed_archive: Vec<u8> = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut compressed_archive);
+        let payload = reqwest::blocking::get(&self.url)?.bytes()?;
+        io::copy(&mut payload.as_ref(), &mut cursor)?;
+        Ok(extract_tar_from_bytes(&compressed_archive, &dir).map(|items| Artefact::Tarball { items })?)
+    }
+}
 
 fn extract_tar_from_bytes(compressed_archive: &[u8], into: &Path) -> Result<Vec<PathBuf>, io::Error> {
     let mut extracted_files: Vec<PathBuf> = Vec::new();
@@ -72,16 +51,6 @@ fn extract_tar_from_bytes(compressed_archive: &[u8], into: &Path) -> Result<Vec<
 
 fn extract_tar(tar_file: &PathBuf, into: &Path) -> Result<Vec<PathBuf>, io::Error> {
     extract_tar_from_bytes(&fs::read(tar_file)?, into)
-}
-
-impl Fetch for TarSource {
-    fn fetch(&self, _: &str, dir: PathBuf) -> Result<Artefact, crate::Error> {
-        let mut compressed_archive: Vec<u8> = Vec::new();
-        let mut cursor = std::io::Cursor::new(&mut compressed_archive);
-        let payload = reqwest::blocking::get(&self.url)?.bytes()?;
-        io::copy(&mut payload.as_ref(), &mut cursor)?;
-        Ok(extract_tar_from_bytes(&compressed_archive, &dir).map(|items| Artefact::Tarball { items })?)
-    }
 }
 
 #[cfg(test)]
