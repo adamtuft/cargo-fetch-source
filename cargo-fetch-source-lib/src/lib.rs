@@ -3,6 +3,7 @@ mod error;
 mod git;
 mod process;
 mod source;
+#[cfg(feature = "tar")]
 mod tar;
 
 use error::Error;
@@ -18,8 +19,24 @@ mod tests {
             .expect("Failed to read Cargo.toml")
             .parse::<toml::Table>()
             .unwrap();
-        let sources = get_remote_sources_from_toml_table(&document).unwrap();
-        println!("{sources:#?}");
+        let sources = get_remote_sources_from_toml_table(&document);
+        if let Err(e) = sources {
+            match &e {
+                crate::source::SourceParseError::VariantDisabled {
+                    source_name,
+                    variant,
+                    requires,
+                } => {
+                    println!(
+                        "Failed to parse source '{source_name}' due to disabled feature '{requires}'"
+                    );
+                    println!("{e}");
+                }
+                _ => println!("Error: {e}"),
+            }
+        } else {
+            println!("{sources:#?}");
+        }
     }
 
     // #[test]

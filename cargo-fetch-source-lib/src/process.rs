@@ -6,8 +6,9 @@ use crate::source::Source;
 impl Source {
     pub fn make_task<P: AsRef<std::path::Path>>(&self, root: P) -> Command {
         match self {
+            #[cfg(feature = "tar")]
+            Source::Tar(tar) => todo!("Implement tar-fetch task creation"),
             Source::Git(git) => git_clone_task(git, root),
-            Source::Tar(tar) => todo!(),
         }
     }
 }
