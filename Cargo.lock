@@ -67,6 +67,7 @@ name = "cargo-fetch-source"
 version = "0.1.0"
 dependencies = [
  "cargo-fetch-source-lib",
+ "toml",
 ]
 
 [[package]]

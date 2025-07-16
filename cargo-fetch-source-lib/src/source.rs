@@ -8,7 +8,7 @@ use crate::tar::TarSource;
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(untagged)]
-pub(crate) enum Source {
+pub enum Source {
     #[cfg(feature = "tar")]
     Tar(TarSource),
     Git(GitSource),
@@ -122,9 +122,9 @@ impl Source {
     }
 }
 
-pub(crate) type Sources = HashMap<String, Source>;
+pub type Sources = HashMap<String, Source>;
 
-trait ParseTomlTable {
+pub trait ParseTomlTable {
     fn try_parse(table: &toml::Table) -> Result<Self, SourceParseError>
     where
         Self: Sized;
@@ -136,6 +136,16 @@ impl ParseTomlTable for Sources {
     fn try_parse(table: &toml::Table) -> Result<Self, SourceParseError> {
         let table_map = validate_and_convert_to_tables(table)?;
         parse_sources_from_tables(&table_map)
+    }
+}
+
+impl TryFrom<String> for Sources {
+    type Error = SourceParseError;
+
+    /// Extracts a `Sources` map from a Cargo.toml document
+    fn try_from(toml_str: String) -> Result<Self, Self::Error> {
+        let table: toml::Table = toml_str.parse()?;
+        Self::try_parse(&table)
     }
 }
 

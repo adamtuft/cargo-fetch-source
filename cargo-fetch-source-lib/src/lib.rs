@@ -6,7 +6,8 @@ mod source;
 #[cfg(feature = "tar")]
 mod tar;
 
-use error::Error;
+pub use error::Error;
+pub use source::{ParseTomlTable as Parse, Source, Sources};
 
 #[cfg(test)]
 mod tests {
