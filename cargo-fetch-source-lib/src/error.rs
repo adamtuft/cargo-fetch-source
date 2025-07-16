@@ -8,8 +8,8 @@ pub enum Error {
     Reqwest(#[from] reqwest::Error),
     #[error(transparent)]
     SerdeJson(#[from] serde_json::Error),
-    #[error(transparent)]
-    UrlParse(#[from] url::ParseError),
+    // #[error(transparent)]
+    // UrlParse(#[from] url::ParseError),
     #[error("Command '{command}' exited with status {status}\n{stderr}")]
     Subprocess {
         command: String,
