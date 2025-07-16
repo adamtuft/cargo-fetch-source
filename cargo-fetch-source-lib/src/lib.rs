@@ -1,9 +1,9 @@
 mod artefact;
 mod error;
 mod git;
-mod tar;
-mod source;
 mod process;
+mod source;
+mod tar;
 
 use error::Error;
 

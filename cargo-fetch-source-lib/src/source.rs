@@ -44,7 +44,5 @@ pub(crate) fn fetch_source_blocking<'a>(
     source: &'a Source,
     dir: PathBuf,
 ) -> Result<(&'a str, Artefact), crate::Error> {
-    source
-        .fetch(name, dir)
-        .map(|artefact| (name, artefact))
+    source.fetch(name, dir).map(|artefact| (name, artefact))
 }

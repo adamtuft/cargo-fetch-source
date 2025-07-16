@@ -13,9 +13,9 @@ pub enum Error {
     #[error("Manual error: {0}")]
     Manual(String),
     #[error("Command '{command}' exited with status {status}\n{stderr}")]
-    Subprocess{
+    Subprocess {
         command: String,
         status: std::process::ExitStatus,
         stderr: String,
-    }
+    },
 }

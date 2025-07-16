@@ -53,10 +53,13 @@ impl GitSource {
                 stderr_pipe.read_to_string(&mut stderr)?;
             }
             let command = format!("git clone {self}");
-            Err(crate::Error::Subprocess { status, command, stderr })
+            Err(crate::Error::Subprocess {
+                status,
+                command,
+                stderr,
+            })
         }
     }
-
 }
 
 impl std::fmt::Display for GitSource {

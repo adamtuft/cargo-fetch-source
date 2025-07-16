@@ -1,8 +1,8 @@
+use flate2::read::GzDecoder;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 use tar::Archive;
-use flate2::read::GzDecoder;
 
 use crate::artefact::Artefact;
 
@@ -18,11 +18,15 @@ impl TarSource {
         let mut cursor = std::io::Cursor::new(&mut compressed_archive);
         let payload = reqwest::blocking::get(&self.url)?.bytes()?;
         io::copy(&mut payload.as_ref(), &mut cursor)?;
-        Ok(extract_tar_from_bytes(&compressed_archive, &dir).map(|items| Artefact::Tarball { items })?)
+        Ok(extract_tar_from_bytes(&compressed_archive, &dir)
+            .map(|items| Artefact::Tarball { items })?)
     }
 }
 
-fn extract_tar_from_bytes(compressed_archive: &[u8], into: &Path) -> Result<Vec<PathBuf>, io::Error> {
+fn extract_tar_from_bytes(
+    compressed_archive: &[u8],
+    into: &Path,
+) -> Result<Vec<PathBuf>, io::Error> {
     let mut extracted_files: Vec<PathBuf> = Vec::new();
     let mut decompressed_archive = Vec::new();
     let mut decoder = GzDecoder::new(compressed_archive);
@@ -36,7 +40,9 @@ fn extract_tar_from_bytes(compressed_archive: &[u8], into: &Path) -> Result<Vec<
         if header.entry_type().is_dir() {
             std::fs::create_dir_all(&path)?;
         } else {
-            if let Some(p) = path.parent() && !p.exists() {
+            if let Some(p) = path.parent()
+                && !p.exists()
+            {
                 std::fs::create_dir_all(p)?;
             }
             let mut file_buffer = Vec::new();
@@ -56,10 +62,10 @@ fn extract_tar(tar_file: &PathBuf, into: &Path) -> Result<Vec<PathBuf>, io::Erro
 #[cfg(test)]
 mod test_flate2_decode {
     use super::*;
-    use std::io::prelude::*;
-    use std::io;
     use flate2::read::GzDecoder;
     use std::fs::File;
+    use std::io;
+    use std::io::prelude::*;
     use tar::Archive;
 
     // Uncompresses a Gz Encoded vector of bytes and returns a string or error
@@ -76,14 +82,19 @@ mod test_flate2_decode {
         let mut root_dirs: std::collections::HashSet<String> = std::collections::HashSet::new();
         for file in a.entries().unwrap() {
             let mut file = file.unwrap();
-            let path = file.header().path().unwrap();            
+            let path = file.header().path().unwrap();
             std::fs::create_dir_all(path.parent().unwrap()).expect("Failed to create directory");
             if file.header().entry_type().is_dir() {
                 // println!("create {}", path.display());
                 fs::create_dir(path.clone()).expect("Failed to create directory");
                 // Print the first component of the path
-                let root = path.components().next().unwrap()
-                    .as_os_str().to_string_lossy().to_string();
+                let root = path
+                    .components()
+                    .next()
+                    .unwrap()
+                    .as_os_str()
+                    .to_string_lossy()
+                    .to_string();
                 // println!("Directory: {root}");
                 root_dirs.insert(root);
             } else {
@@ -92,7 +103,7 @@ mod test_flate2_decode {
                 let mut buf = Vec::new();
                 file.read_to_end(&mut buf).expect("Failed to read file");
                 f.write_all(buf.as_slice()).expect("Failed to write file");
-            }           
+            }
         }
         println!("Root directories: {root_dirs:?}");
         root_dirs.into_iter().collect()
@@ -108,7 +119,9 @@ mod test_flate2_decode {
 
     #[test]
     fn test_decode_reader_2() {
-        let archive = PathBuf::from("/home/adam/git/cargo-fetch-source/cargo-fetch-source-lib/test/test_fetch_sources_blocking/otf2-2.3.tar.gz");
+        let archive = PathBuf::from(
+            "/home/adam/git/cargo-fetch-source/cargo-fetch-source-lib/test/test_fetch_sources_blocking/otf2-2.3.tar.gz",
+        );
         let dest = PathBuf::from("/home/adam/git/cargo-fetch-source/cargo-fetch-source-lib/x");
         let result = super::extract_tar(&archive, &dest);
         println!("Extracted directories: {result:#?}");
