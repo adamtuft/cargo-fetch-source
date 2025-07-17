@@ -1,13 +1,17 @@
-//! Fetch external source code dependencies defined in Cargo.toml metadata.
+#![allow(rustdoc::redundant_explicit_links)]
+//! Declare external source dependencies in `Cargo.toml` and fetch them programatically.
 //!
 //! This crate allows you to define external sources (Git repositories, tar archives) in your
-//! `Cargo.toml` file under `[package.metadata.fetch-source]` and fetch them programmatically.
+//! `Cargo.toml` under `[package.metadata.fetch-source]` and fetch them programmatically.
+//! This crate is intended for use in build scripts where Rust bindings are generated from external
+//! source(s).
 //!
 //! # Features
 //!
-//! - **Git repositories**: Clone repositories with support for branches, tags, and specific revisions
-//! - **Tar archives**: Download and extract compressed tar archives (requires `tar` feature)
-//! - **Cargo.toml integration**: Define sources directly in your project metadata
+//! - Define sources directly in your project metadata.
+//! - Clone git repositories (possibly recursively) by branch, tag, or specific commit (requires `git`
+//!   to be installed and available on `PATH`).
+//! - Download and extract `.tar.gz` archives (requires `tar` feature).
 //!
 //! # Quick Start
 //!
@@ -38,6 +42,8 @@
 //! # Examples
 //!
 //! ## Basic parsing and fetching
+//! 
+//! See: [`source::Sources`] and [`source::Parse::try_parse_toml`]
 //!
 //! ```rust
 //! use fetch_source::{Sources, Parse, Artefact};
@@ -92,12 +98,18 @@
 //! }
 //! ```
 
-mod error;
+pub mod source;
 mod git;
 mod process;
-mod source;
 #[cfg(feature = "tar")]
 mod tar;
+mod error;
 
-pub use error::Error;
-pub use source::{Parse, Sources, Artefact};
+#[doc(inline)]
+pub use crate::source::*;
+#[doc(inline)]
+pub use crate::git::*;
+#[doc(inline)]
+pub use crate::tar::*;
+#[doc(inline)]
+pub use crate::error::*;

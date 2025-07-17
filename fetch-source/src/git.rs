@@ -1,9 +1,10 @@
 use std::io::Read;
 
-use crate::Artefact;
+use super::source::Artefact;
+use super::error::Error;
 
 #[derive(Debug, serde::Deserialize, PartialEq, Eq)]
-pub(crate) enum GitReference {
+pub enum GitReference {
     #[serde(rename = "branch")]
     Branch(String),
     #[serde(rename = "tag")]
@@ -45,7 +46,7 @@ impl GitSource {
         }
     }
 
-    pub fn fetch<P: AsRef<std::path::Path>>(&self, name: &str, dir: P) -> Result<Artefact, crate::Error> {
+    pub fn fetch<P: AsRef<std::path::Path>>(&self, name: &str, dir: P) -> Result<Artefact, Error> {
         let repo = dir.as_ref().join(name);
         let mut proc = crate::process::git_clone_task(self, &repo).spawn()?;
         let status = proc.wait()?;
@@ -57,7 +58,7 @@ impl GitSource {
                 stderr_pipe.read_to_string(&mut stderr)?;
             }
             let command = format!("git clone {self}");
-            Err(crate::Error::Subprocess {
+            Err(Error::Subprocess {
                 status,
                 command,
                 stderr,

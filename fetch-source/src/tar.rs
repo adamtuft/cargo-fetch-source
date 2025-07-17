@@ -4,9 +4,10 @@ use std::path::{Path, PathBuf};
 use std::{fs, io};
 use tar::Archive;
 
-use crate::Artefact;
+use super::source::Artefact;
+use super::error::Error;
 
-pub(crate) type TarItems = std::collections::HashMap<std::path::PathBuf, Vec<std::path::PathBuf>>;
+pub type TarItems = std::collections::HashMap<std::path::PathBuf, Vec<std::path::PathBuf>>;
 
 #[derive(Debug, serde::Deserialize, PartialEq, Eq)]
 pub struct TarSource {
@@ -15,7 +16,7 @@ pub struct TarSource {
 }
 
 impl TarSource {
-    pub fn fetch<P: AsRef<std::path::Path>>(&self, _: &str, dir: P) -> Result<Artefact, crate::Error> {
+    pub fn fetch<P: AsRef<std::path::Path>>(&self, _: &str, dir: P) -> Result<Artefact, Error> {
         let mut compressed_archive: Vec<u8> = Vec::new();
         let mut cursor = std::io::Cursor::new(&mut compressed_archive);
         let payload = reqwest::blocking::get(&self.url)?.bytes()?;
@@ -103,7 +104,6 @@ mod test_flate2_decode {
     use flate2::read::GzDecoder;
     use std::fs::File;
     use std::io;
-    use std::io::prelude::*;
     use tar::Archive;
 
     // Uncompresses a Gz Encoded vector of bytes and returns a string or error

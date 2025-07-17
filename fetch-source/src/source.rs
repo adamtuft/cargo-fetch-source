@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::git::GitSource;
+use super::error::Error;
+use super::git::GitSource;
 #[cfg(feature = "tar")]
-use crate::tar::TarSource;
+use super::tar::{TarSource, TarItems};
 
+/// Errors encountered when parsing sources from `Cargo.toml`
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum SourceParseError {
     #[error("expected a valid source type for source '{source_name}': expected one of: {known}", known = SourceVariant::known().iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", "))]
@@ -28,7 +30,7 @@ pub enum SourceParseError {
 #[derive(Debug)]
 pub enum Artefact {
     #[cfg(feature = "tar")]
-    Tarball { items: crate::tar::TarItems },
+    Tarball { items: TarItems },
     Repository(PathBuf),
 }
 
@@ -102,7 +104,7 @@ impl std::fmt::Display for Source {
 }
 
 impl Source {
-    pub fn fetch<P: AsRef<std::path::Path>>(&self, name: &str, dir: P) -> Result<Artefact, crate::Error> {
+    pub fn fetch<P: AsRef<std::path::Path>>(&self, name: &str, dir: P) -> Result<Artefact, Error> {
         match self {
             #[cfg(feature = "tar")]
             Source::Tar(tar) => tar.fetch(name, dir),
@@ -154,7 +156,7 @@ impl Source {
 /// Represents the contents of the `package.metadata.fetch-source` table in a `Cargo.toml` file.
 pub type Sources = HashMap<String, Source>;
 
-/// Extension trait for parsing a TOML table into a `Sources` map.
+/// Extension trait for parsing a TOML table into a [`Sources`](crate::source::Sources) map.
 pub trait Parse {
     fn try_parse(table: &toml::Table) -> Result<Self, SourceParseError>
     where
@@ -166,7 +168,7 @@ pub trait Parse {
 }
 
 impl Parse for Sources {
-    /// Parse a `package.metadata.fetch-source` table into a `Sources` map.
+    /// Parse a `package.metadata.fetch-source` table into a into a [`Sources`](crate::source::Sources) map
     fn try_parse(table: &toml::Table) -> Result<Self, SourceParseError> {
         table
             .iter()
@@ -178,7 +180,7 @@ impl Parse for Sources {
     }
 
     /// Parse the contents of a Cargo.toml file containing the `package.metadata.fetch-source` table
-    /// into a `Sources` map.
+    /// into a into a [`Sources`](crate::source::Sources) map.
     fn try_parse_toml<S: AsRef<str>>(toml_str: S) -> Result<Self, SourceParseError> {
         let table = toml_str.as_ref().parse::<toml::Table>()?;
         let sources_table = table
@@ -208,7 +210,7 @@ pub(crate) fn fetch_source_blocking_helper_fn<'a>(
     name: &'a str,
     source: &'a Source,
     dir: PathBuf,
-) -> Result<(&'a str, Artefact), crate::Error> {
+) -> Result<(&'a str, Artefact), Error> {
     source.fetch(name, dir).map(|artefact| (name, artefact))
 }
 
