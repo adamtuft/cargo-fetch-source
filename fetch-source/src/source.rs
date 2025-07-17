@@ -139,6 +139,7 @@ impl Source {
     }
 
     /// Get a reference to the inner tar source, if it is one.
+    #[cfg(feature = "tar")]
     pub fn as_tar(&self) -> Option<&Tar> {
         if let Source::Tar(s) = self {
             Some(s)
@@ -245,14 +246,6 @@ fn validate_table<S: AsRef<str>>(
         .ok_or_else(|| SourceParseError::ValueNotTable {
             name: key.as_ref().to_string(),
         })
-}
-
-pub(crate) fn fetch_source_blocking_helper_fn<'a>(
-    name: &'a str,
-    source: &'a Source,
-    dir: PathBuf,
-) -> Result<(&'a str, Artefact), Error> {
-    source.fetch(name, dir).map(|artefact| (name, artefact))
 }
 
 #[cfg(test)]
