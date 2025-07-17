@@ -77,16 +77,16 @@
 //!
 
 mod error;
-mod git;
-mod source;
+pub mod git;
+pub mod source;
 #[cfg(feature = "tar")]
-mod tar;
+pub mod tar;
 
 #[doc(inline)]
-pub use crate::error::*;
-#[doc(inline)]
-pub use crate::git::*;
+pub use crate::error::Error;
+// #[doc(inline)]
+// pub use crate::git::*;
 #[doc(inline)]
 pub use crate::source::*;
-#[doc(inline)]
-pub use crate::tar::*;
+// #[doc(inline)]
+// pub use crate::tar::*;

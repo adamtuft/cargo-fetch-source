@@ -1,3 +1,5 @@
+//! Defines the error enum for this crate.
+
 /// The main error enum for this crate.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

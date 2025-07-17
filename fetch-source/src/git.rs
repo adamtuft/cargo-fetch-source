@@ -1,3 +1,5 @@
+//! Support for declaring and fetching git repositories.
+
 use std::io::Read;
 
 use super::error::Error;

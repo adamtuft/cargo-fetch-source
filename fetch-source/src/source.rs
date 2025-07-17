@@ -1,3 +1,5 @@
+//! Core types for intereacting with sources declared in `Cargo.toml`.
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 

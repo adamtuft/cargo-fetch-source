@@ -1,3 +1,5 @@
+//! Support for declaring and fetching tar archives.
+
 use flate2::read::GzDecoder;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
