@@ -27,6 +27,7 @@ pub enum SourceParseError {
 
 #[derive(Debug)]
 pub enum Artefact {
+    #[cfg(feature = "tar")]
     Tarball { items: crate::tar::TarItems },
     Repository(PathBuf),
 }
