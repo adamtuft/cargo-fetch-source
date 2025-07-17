@@ -1,4 +1,3 @@
-mod artefact;
 mod error;
 mod git;
 mod process;
@@ -8,3 +7,4 @@ mod tar;
 
 pub use error::Error;
 pub use source::{Parse, Sources};
+pub(crate) use source::Artefact;

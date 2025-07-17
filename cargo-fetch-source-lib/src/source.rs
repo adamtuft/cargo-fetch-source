@@ -1,10 +1,15 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::artefact::Artefact;
 use crate::git::GitSource;
 #[cfg(feature = "tar")]
 use crate::tar::TarSource;
+
+#[derive(Debug)]
+pub enum Artefact {
+    Tarball { items: Vec<std::path::PathBuf> },
+    Repository(PathBuf),
+}
 
 #[derive(Debug, serde::Deserialize, PartialEq, Eq)]
 #[serde(untagged)]

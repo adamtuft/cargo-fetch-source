@@ -1,6 +1,6 @@
 use std::io::Read;
 
-use crate::artefact::Artefact;
+use crate::Artefact;
 
 #[derive(Debug, serde::Deserialize, PartialEq, Eq)]
 pub(crate) enum GitReference {

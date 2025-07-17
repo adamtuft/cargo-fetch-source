@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::{fs, io};
 use tar::Archive;
 
-use crate::artefact::Artefact;
+use crate::Artefact;
 
 #[derive(Debug, serde::Deserialize, PartialEq, Eq)]
 pub struct TarSource {
