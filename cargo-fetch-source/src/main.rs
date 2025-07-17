@@ -1,33 +1,59 @@
-use fetch_source::{self as fetch, Artefact};
+use std::path::PathBuf;
+
+use anyhow::Context;
+use clap::Parser;
 
 use fetch::Parse;
+use fetch_source::{self as fetch, Artefact};
 
-fn main() {
-    let out_dir = std::path::PathBuf::from(".");
-    match std::fs::read_to_string("Cargo.toml") {
+#[derive(Parser)]
+#[command(name = "cargo-fetch-source")]
+#[command(about = "Fetch external sources specified in Cargo.toml")]
+struct Args {
+    /// Path to the Cargo.toml file
+    #[arg(long, short = 'm', default_value = "Cargo.toml")]
+    manifest_file: PathBuf,
+
+    /// Output directory for fetched sources
+    #[arg(long, short = 'o', default_value = ".")]
+    out_dir: PathBuf,
+}
+
+fn main() -> Result<(), anyhow::Error> {
+    let args = Args::parse();
+
+    match std::fs::read_to_string(&args.manifest_file) {
         Ok(document) => match fetch::Sources::try_parse_toml(&document) {
             Ok(sources) => {
                 for (name, source) in sources {
-                    match source.fetch(&name, out_dir.canonicalize().unwrap()) {
+                    match source.fetch(&name, args.out_dir.canonicalize().unwrap()) {
                         Ok(Artefact::Tarball { items }) => {
                             println!("Extracted {} into:", source.upstream());
                             for (dir, files) in items {
-                                println!(" => {:#?} ({} items)", out_dir.join(dir), files.len());
+                                println!(
+                                    " => {:#?} ({} items)",
+                                    args.out_dir.join(dir),
+                                    files.len()
+                                );
                             }
                         }
                         Ok(Artefact::Repository(path)) => {
                             println!("Fetched repository into {path:?}")
                         }
-                        Err(e) => eprintln!("Failed to fetch '{name}': {e}"),
+                        Err(e) => {
+                            return Err(e)
+                                .context(format!("Failed to fetch source '{name}': {source}"));
+                        }
                     }
                 }
             }
             Err(e) => {
-                eprintln!("Failed to parse Cargo.toml: {e}");
+                return Err(e).context("Failed to parse Cargo.toml");
             }
         },
         Err(e) => {
-            eprintln!("Failed to read Cargo.toml: {e}");
+            return Err(e).context("Failed to read Cargo.toml");
         }
     }
+    Ok(())
 }
