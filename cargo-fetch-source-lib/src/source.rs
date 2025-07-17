@@ -76,8 +76,10 @@ pub enum SourceParseError {
         variant: String,
         requires: String,
     },
-    #[error("source '{source_name}' is not a toml table")]
-    SourceNotTable { source_name: String },
+    #[error("expected value '{name}' to be a toml table")]
+    ValueNotTable { name: String },
+    #[error("required table 'package.metadata.fetch-source' not found in string")]
+    SourceTableNotFound,
     #[error(transparent)]
     TomlDe(#[from] toml::de::Error),
 }
@@ -91,6 +93,8 @@ impl Source {
         }
     }
 
+    /// Parse a TOML table into a `Source` instance. Exactly one key in the table must identify
+    /// a valid, enabled source type, otherwise an error is returned.
     fn parse<S: ToString>(name: S, source: &toml::Table) -> Result<Self, SourceParseError> {
         let mut detected_variant = None;
         for key in source.keys() {
@@ -124,72 +128,49 @@ impl Source {
 
 pub type Sources = HashMap<String, Source>;
 
-pub trait ParseTomlTable {
+pub trait Parse {
     fn try_parse(table: &toml::Table) -> Result<Self, SourceParseError>
+    where
+        Self: Sized;
+
+    fn try_parse_toml<S: AsRef<str>>(toml_str: S) -> Result<Self, SourceParseError>
     where
         Self: Sized;
 }
 
-impl ParseTomlTable for Sources {
-    /// Takes as input the `package.metadata.fetch-source` table from a Cargo.toml file,
-    /// and returns a `Sources` map
+impl Parse for Sources {
+    /// Parse a `package.metadata.fetch-source` table into a `Sources` map.
     fn try_parse(table: &toml::Table) -> Result<Self, SourceParseError> {
-        let table_map = validate_and_convert_to_tables(table)?;
-        parse_sources_from_tables(&table_map)
+        table.iter()
+            .map(|(k, v)| {
+                let (n, t) = validate_table(k, v)?;
+                Source::parse(&n, &t).map(|s| (n, s))
+            })
+            .collect()
+    }
+
+    /// Parse a Cargo.toml string containing the `package.metadata.fetch-source` table
+    /// into a `Sources` map.
+    fn try_parse_toml<S: AsRef<str>>(toml_str: S) -> Result<Self, SourceParseError> {
+        let table = toml_str.as_ref().parse::<toml::Table>()?;
+        let sources_table = table
+            .get("package")
+            .and_then(|v| v.get("metadata"))
+            .and_then(|v| v.get("fetch-source"))
+            .and_then(|v| v.as_table())
+            .ok_or(SourceParseError::SourceTableNotFound)?;
+        Self::try_parse(sources_table)
     }
 }
 
-impl TryFrom<String> for Sources {
-    type Error = SourceParseError;
-
-    /// Extracts a `Sources` map from a Cargo.toml document
-    fn try_from(toml_str: String) -> Result<Self, Self::Error> {
-        let table: toml::Table = toml_str.parse()?;
-        Self::try_parse(&table)
-    }
+/// Validate that a TOML value is a table, returning the named table
+fn validate_table<S: AsRef<str>>(key: S, value: &toml::Value) -> Result<(String, toml::Table), SourceParseError> {
+    value.as_table().map(|t| (key.as_ref().to_string(), t.to_owned())).ok_or_else(||
+        SourceParseError::ValueNotTable { name: key.as_ref().to_string() }
+    )
 }
 
-/// Validate that all values in the TOML table are themselves tables,
-/// and convert to a Map<String, Table>
-fn validate_and_convert_to_tables(
-    table: &toml::Table,
-) -> Result<toml::map::Map<String, toml::Table>, SourceParseError> {
-    table
-        .iter()
-        .map(|(k, v)| {
-            v.as_table()
-                .map(|t| (k.clone(), t.clone()))
-                .ok_or_else(|| SourceParseError::SourceNotTable {
-                    source_name: k.clone(),
-                })
-        })
-        .collect()
-}
-
-/// Parse each table entry into a Source and build the final Sources map
-fn parse_sources_from_tables(
-    table_map: &toml::map::Map<String, toml::Table>,
-) -> Result<Sources, SourceParseError> {
-    table_map
-        .iter()
-        .map(|(name, table)| Source::parse(name, table).map(|source| (name.clone(), source)))
-        .collect()
-}
-
-pub(crate) fn get_remote_sources_from_toml_table(
-    table: &toml::Table,
-) -> Result<Sources, SourceParseError> {
-    let sources_table = table
-        .get("package")
-        .and_then(|v| v.get("metadata"))
-        .and_then(|v| v.get("fetch-source"))
-        .and_then(|v| v.as_table())
-        .unwrap();
-
-    Sources::try_parse(sources_table)
-}
-
-pub(crate) fn fetch_source_blocking<'a>(
+pub(crate) fn fetch_source_blocking_helper_fn<'a>(
     name: &'a str,
     source: &'a Source,
     dir: PathBuf,

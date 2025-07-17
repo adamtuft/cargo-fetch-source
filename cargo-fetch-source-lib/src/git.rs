@@ -13,7 +13,7 @@ pub(crate) enum GitReference {
 }
 
 #[derive(Debug, serde::Deserialize)]
-pub(crate) struct GitSource {
+pub struct GitSource {
     #[serde(rename = "git")]
     pub(crate) url: String,
     #[serde(flatten)]
