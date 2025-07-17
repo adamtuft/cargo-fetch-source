@@ -6,7 +6,7 @@ use crate::git::GitSource;
 #[cfg(feature = "tar")]
 use crate::tar::TarSource;
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum Source {
     #[cfg(feature = "tar")]
@@ -64,7 +64,7 @@ impl SourceVariant {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum SourceParseError {
     #[error("expected a valid source type for source '{source_name}': expected one of: {known}", known = SourceVariant::known().iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", "))]
     VariantUnknown { source_name: String },
@@ -81,7 +81,7 @@ pub enum SourceParseError {
     #[error("required table 'package.metadata.fetch-source' not found in string")]
     SourceTableNotFound,
     #[error(transparent)]
-    TomlDe(#[from] toml::de::Error),
+    TomlInvalid(#[from] toml::de::Error),
 }
 
 impl Source {
@@ -141,7 +141,8 @@ pub trait Parse {
 impl Parse for Sources {
     /// Parse a `package.metadata.fetch-source` table into a `Sources` map.
     fn try_parse(table: &toml::Table) -> Result<Self, SourceParseError> {
-        table.iter()
+        table
+            .iter()
             .map(|(k, v)| {
                 let (n, t) = validate_table(k, v)?;
                 Source::parse(&n, &t).map(|s| (n, s))
@@ -149,7 +150,7 @@ impl Parse for Sources {
             .collect()
     }
 
-    /// Parse a Cargo.toml string containing the `package.metadata.fetch-source` table
+    /// Parse the contents of a Cargo.toml file containing the `package.metadata.fetch-source` table
     /// into a `Sources` map.
     fn try_parse_toml<S: AsRef<str>>(toml_str: S) -> Result<Self, SourceParseError> {
         let table = toml_str.as_ref().parse::<toml::Table>()?;
@@ -164,10 +165,16 @@ impl Parse for Sources {
 }
 
 /// Validate that a TOML value is a table, returning the named table
-fn validate_table<S: AsRef<str>>(key: S, value: &toml::Value) -> Result<(String, toml::Table), SourceParseError> {
-    value.as_table().map(|t| (key.as_ref().to_string(), t.to_owned())).ok_or_else(||
-        SourceParseError::ValueNotTable { name: key.as_ref().to_string() }
-    )
+fn validate_table<S: AsRef<str>>(
+    key: S,
+    value: &toml::Value,
+) -> Result<(String, toml::Table), SourceParseError> {
+    value
+        .as_table()
+        .map(|t| (key.as_ref().to_string(), t.to_owned()))
+        .ok_or_else(|| SourceParseError::ValueNotTable {
+            name: key.as_ref().to_string(),
+        })
 }
 
 pub(crate) fn fetch_source_blocking_helper_fn<'a>(
@@ -179,25 +186,17 @@ pub(crate) fn fetch_source_blocking_helper_fn<'a>(
 }
 
 #[cfg(test)]
-mod tests {
+use SourceParseError::*;
+
+#[cfg(test)]
+mod test_parsing_single_source_value {
     use super::*;
-    use toml::Value;
-
-    const GOOD_GIT_SOURCE_TABLE: &str = "{ git = 'git@github.com:foo/bar.git' }";
-    const GOOD_TAR_SOURCE_TABLE: &str = "{ tar = 'https://example.com/foo.tar.gz' }";
-    const BAD_MULTIPLE_TYPES: &str =
-        "{ tar = 'https://example.com/foo.tar.gz', git = 'git@github.com:foo/bar.git' }";
-    const BAD_MISSING_TYPE: &str = "{ foo = 'git@github.com:foo/bar.git' }";
-
-    fn as_table(valid_toml: &str) -> Option<toml::Table> {
-        valid_toml.parse::<Value>().unwrap()
-            .as_table()
-            .cloned()
-    }
 
     #[test]
     fn parse_good_git_source() {
-        let table = as_table(GOOD_GIT_SOURCE_TABLE).unwrap();
+        let table = toml::toml! {
+            git = "git@github.com:foo/bar.git"
+        };
         let source = Source::parse("src", &table);
         assert!(source.is_ok());
     }
@@ -205,7 +204,9 @@ mod tests {
     #[cfg(feature = "tar")]
     #[test]
     fn parse_good_tar_source() {
-        let table = as_table(GOOD_TAR_SOURCE_TABLE).unwrap();
+        let table = toml::toml! {
+            tar = "https://example.com/foo.tar.gz"
+        };
         let source = Source::parse("src", &table);
         assert!(source.is_ok());
     }
@@ -213,8 +214,9 @@ mod tests {
     #[cfg(not(feature = "tar"))]
     #[test]
     fn parse_good_tar_source_fails_when_feature_disabled() {
-        use SourceParseError::VariantDisabled;
-        let table = as_table(GOOD_TAR_SOURCE_TABLE).unwrap();
+        let table = toml::toml! {
+            tar = "https://example.com/foo.tar.gz"
+        };
         let source = Source::parse("src", &table);
         assert!(
             matches!(source, Err(VariantDisabled { source_name, variant, requires })
@@ -225,8 +227,10 @@ mod tests {
 
     #[test]
     fn parse_multiple_types_fails() {
-        use SourceParseError::VariantMultiple;
-        let table = as_table(BAD_MULTIPLE_TYPES).unwrap();
+        let table = toml::toml! {
+            tar = "https://example.com/foo.tar.gz"
+            git = "git@github.com:foo/bar.git"
+        };
         let source = Source::parse("src", &table);
         assert!(matches!(source, Err(VariantMultiple { source_name })
             if source_name == "src"
@@ -235,11 +239,104 @@ mod tests {
 
     #[test]
     fn parse_missing_type_fails() {
-        use SourceParseError::VariantUnknown;
-        let table = as_table(BAD_MISSING_TYPE).unwrap();
+        let table = toml::toml! {
+            foo = "git@github.com:foo/bar.git"
+        };
         let source = Source::parse("src", &table);
         assert!(matches!(source, Err(VariantUnknown { source_name })
             if source_name == "src"
         ));
+    }
+}
+
+#[cfg(test)]
+mod test_parsing_sources_table_failure_modes {
+    use super::*;
+
+    #[test]
+    fn parse_invalid_toml_str_fails() {
+        let document = "this is not a valid toml document :( uh-oh!";
+        let result = Sources::try_parse_toml(document);
+        assert!(matches!(result, Err(TomlInvalid(_))));
+    }
+
+    #[test]
+    fn parse_doc_missing_sources_table_fails() {
+        let document = r#"
+            [package]
+            name = "my_fun_test_suite"
+
+            [package.metadata.wrong-name]
+            foo = { git = "git@github.com:foo/bar.git" }
+            bar = { tar = "https://example.com/foo.tar.gz" }
+        "#;
+        assert_eq!(Sources::try_parse_toml(document), Err(SourceTableNotFound));
+    }
+
+    #[test]
+    fn parse_doc_source_value_not_a_table_fails() {
+        let document = r#"
+            [package]
+            name = "my_fun_test_suite"
+
+            [package.metadata.fetch-source]
+            not-a-table = "actually a string"
+        "#;
+        assert_eq!(
+            Sources::try_parse_toml(document),
+            Err(ValueNotTable {
+                name: "not-a-table".to_string()
+            })
+        );
+    }
+
+    #[cfg(not(feature = "tar"))]
+    #[test]
+    fn parse_doc_source_variant_disabled_fails() {
+        let document = r#"
+            [package]
+            name = "my_fun_test_suite"
+
+            [package.metadata.fetch-source]
+            bar = { tar = "https://example.com/foo.tar.gz" }
+        "#;
+        assert_eq!(
+            Sources::try_parse_toml(document),
+            Err(VariantDisabled {
+                source_name: "bar".to_string(),
+                variant: "tar".to_string(),
+                requires: "tar".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn parse_doc_source_multiple_variants_fails() {
+        let document = r#"
+            [package]
+            name = "my_fun_test_suite"
+
+            [package.metadata.fetch-source]
+            bar = { tar = "https://example.com/foo.tar.gz", git = "git@github.com:foo/bar.git" }
+        "#;
+        assert_eq!(
+            Sources::try_parse_toml(document),
+            Err(VariantMultiple { source_name: "bar".to_string() })
+        );
+    }
+
+    #[test]
+    fn parse_doc_source_unknown_variant_fails() {
+        let document = r#"
+            [package]
+            name = "my_fun_test_suite"
+
+            [package.metadata.fetch-source]
+            bar = { zim = "https://example.com/foo.tar.gz" }
+        "#;
+        assert_eq!(
+            Sources::try_parse_toml(document),
+            Err(VariantUnknown { source_name: "bar".to_string() })
+        );
     }
 }

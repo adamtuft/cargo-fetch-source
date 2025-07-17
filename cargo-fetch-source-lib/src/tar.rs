@@ -6,7 +6,7 @@ use tar::Archive;
 
 use crate::artefact::Artefact;
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, PartialEq, Eq)]
 pub struct TarSource {
     #[serde(rename = "tar")]
     url: String,

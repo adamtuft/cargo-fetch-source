@@ -2,7 +2,7 @@ use std::io::Read;
 
 use crate::artefact::Artefact;
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, PartialEq, Eq)]
 pub(crate) enum GitReference {
     #[serde(rename = "branch")]
     Branch(String),
@@ -12,7 +12,7 @@ pub(crate) enum GitReference {
     Rev(String),
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, PartialEq, Eq)]
 pub struct GitSource {
     #[serde(rename = "git")]
     pub(crate) url: String,
