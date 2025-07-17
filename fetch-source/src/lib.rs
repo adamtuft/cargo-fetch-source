@@ -5,7 +5,11 @@
 //! `Cargo.toml` under `[package.metadata.fetch-source]` and fetch them programmatically.
 //! This crate is intended for use in build scripts where Rust bindings are generated from external
 //! source(s).
+//! 
+//! Inspired by CMake's [`FetchContent`] module.
 //!
+//! [`FetchContent`]: https://cmake.org/cmake/help/latest/module/FetchContent.html#fetchcontent
+//! 
 //! # Core Features
 //!
 //! - Define sources directly in your project metadata.
@@ -21,25 +25,20 @@
 //!
 //! # Usage
 //!
-//! Add your external sources to your `Cargo.toml`:
+//! Parse external sources declared in your `Cargo.toml` like so:
 //!
-//! ```toml
+//! ```rust
+//! use fetch_source::{Sources, Parse};
+//!
+//! // Imagine this is in your Cargo.toml:
+//! let cargo_toml = r#"
 //! [package.metadata.fetch-source]
 //! my-repo = { git = "https://github.com/user/repo.git", recursive = true }
 //! other-repo = { git = "https://github.com/user/project.git", branch = "the-feature" }
 //! my-data = { tar = "https://example.com/data.tar.gz" }
-//! ```
-//!
-//! Parse them like so:
-//!
-//! ```rust
-//! use fetch_source::{Sources, Parse};
-//! use std::path::PathBuf;
-//!
-//! let cargo_toml = std::fs::read_to_string("Cargo.toml")?;
-//! let sources = Sources::try_parse_toml(cargo_toml)?;
-//!
-//! for (name, source) in sources {
+//! "#;
+//! 
+//! for (name, source) in Sources::try_parse_toml(cargo_toml)? {
 //!     println!("{name}: {source}");
 //! }
 //! # Ok::<(), Box<dyn std::error::Error>>(())
@@ -48,17 +47,23 @@
 //! Fetch all sources into a directory:
 //!
 //! ```rust
+//! # use fetch_source::Error;
 //! use fetch_source::{Sources, Parse};
 //! use std::path::PathBuf;
 //!
-//! let cargo_toml = std::fs::read_to_string("Cargo.toml")?;
-//! let sources = Sources::try_parse_toml(cargo_toml)?;
-//!
-//! for (name, source) in sources {
+//! # fn main() -> Result<(), Error> {
+//! let cargo_toml = r#"
+//! [package.metadata.fetch-source]
+//! syn = { git = "https://github.com/dtolnay/syn.git" }
+//! syn-old = { tar = "https://github.com/dtolnay/syn/archive/refs/tags/1.0.0.tar.gz" }
+//! "#;
+//! 
+//! for (name, source) in Sources::try_parse_toml(cargo_toml)? {
 //!     let output_dir = PathBuf::from("./external");
 //!     source.fetch(&name, output_dir)?;
 //! }
-//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Structure of the `package.metadata.fetch-source` table
@@ -84,9 +89,5 @@ pub mod tar;
 
 #[doc(inline)]
 pub use crate::error::Error;
-// #[doc(inline)]
-// pub use crate::git::*;
 #[doc(inline)]
 pub use crate::source::*;
-// #[doc(inline)]
-// pub use crate::tar::*;

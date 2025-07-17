@@ -38,6 +38,9 @@ pub(crate) enum ErrorKind {
     #[error(transparent)]
     TomlDe(#[from] toml::de::Error),
 
+    #[error(transparent)]
+    Parse(#[from] crate::SourceParseError),
+
     #[error("Command '{command}' exited with status {status}\n{stderr}")]
     Subprocess {
         command: String,
