@@ -23,6 +23,10 @@ pub struct GitSource {
 }
 
 impl GitSource {
+    pub fn upstream(&self) -> &str {
+        &self.url
+    }
+
     pub fn is_recursive(&self) -> bool {
         self.recursive
     }
@@ -41,8 +45,8 @@ impl GitSource {
         }
     }
 
-    pub fn fetch(&self, name: &str, dir: std::path::PathBuf) -> Result<Artefact, crate::Error> {
-        let repo = dir.join(name);
+    pub fn fetch<P: AsRef<std::path::Path>>(&self, name: &str, dir: P) -> Result<Artefact, crate::Error> {
+        let repo = dir.as_ref().join(name);
         let mut proc = crate::process::git_clone_task(self, &repo).spawn()?;
         let status = proc.wait()?;
         if status.success() {

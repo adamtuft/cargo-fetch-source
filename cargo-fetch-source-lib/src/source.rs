@@ -5,18 +5,30 @@ use crate::git::GitSource;
 #[cfg(feature = "tar")]
 use crate::tar::TarSource;
 
-#[derive(Debug)]
-pub enum Artefact {
-    Tarball { items: Vec<std::path::PathBuf> },
-    Repository(PathBuf),
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum SourceParseError {
+    #[error("expected a valid source type for source '{source_name}': expected one of: {known}", known = SourceVariant::known().iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", "))]
+    VariantUnknown { source_name: String },
+    #[error("multiple source types for source '{source_name}': expected exactly one of: {known}", known = SourceVariant::known().iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", "))]
+    VariantMultiple { source_name: String },
+    #[error("source '{source_name}' has type '{variant}' but needs disabled feature '{requires}'")]
+    VariantDisabled {
+        source_name: String,
+        variant: String,
+        requires: String,
+    },
+    #[error("expected value '{name}' to be a toml table")]
+    ValueNotTable { name: String },
+    #[error("required table 'package.metadata.fetch-source' not found in string")]
+    SourceTableNotFound,
+    #[error(transparent)]
+    TomlInvalid(#[from] toml::de::Error),
 }
 
-#[derive(Debug, serde::Deserialize, PartialEq, Eq)]
-#[serde(untagged)]
-pub enum Source {
-    #[cfg(feature = "tar")]
-    Tar(TarSource),
-    Git(GitSource),
+#[derive(Debug)]
+pub enum Artefact {
+    Tarball { items: crate::tar::TarItems },
+    Repository(PathBuf),
 }
 
 /// Allowed source variants.
@@ -69,32 +81,39 @@ impl SourceVariant {
     }
 }
 
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum SourceParseError {
-    #[error("expected a valid source type for source '{source_name}': expected one of: {known}", known = SourceVariant::known().iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", "))]
-    VariantUnknown { source_name: String },
-    #[error("multiple source types for source '{source_name}': expected exactly one of: {known}", known = SourceVariant::known().iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", "))]
-    VariantMultiple { source_name: String },
-    #[error("source '{source_name}' has type '{variant}' but needs disabled feature '{requires}'")]
-    VariantDisabled {
-        source_name: String,
-        variant: String,
-        requires: String,
-    },
-    #[error("expected value '{name}' to be a toml table")]
-    ValueNotTable { name: String },
-    #[error("required table 'package.metadata.fetch-source' not found in string")]
-    SourceTableNotFound,
-    #[error(transparent)]
-    TomlInvalid(#[from] toml::de::Error),
+/// Represents an entry in the `package.metadata.fetch-source` table.
+#[derive(Debug, serde::Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum Source {
+    #[cfg(feature = "tar")]
+    Tar(TarSource),
+    Git(GitSource),
+}
+
+impl std::fmt::Display for Source {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            #[cfg(feature = "tar")]
+            Source::Tar(tar) => write!(f, "tar source: {tar:?}"),
+            Source::Git(git) => write!(f, "git source: {git:?}"),
+        }
+    }
 }
 
 impl Source {
-    fn fetch(&self, name: &str, dir: PathBuf) -> Result<Artefact, crate::Error> {
+    pub fn fetch<P: AsRef<std::path::Path>>(&self, name: &str, dir: P) -> Result<Artefact, crate::Error> {
         match self {
             #[cfg(feature = "tar")]
             Source::Tar(tar) => tar.fetch(name, dir),
             Source::Git(git) => git.fetch(name, dir),
+        }
+    }
+
+    pub fn upstream(&self) -> &str {
+        match self {
+            #[cfg(feature = "tar")]
+            Source::Tar(tar) => tar.upstream(),
+            Source::Git(git) => git.upstream(),
         }
     }
 
@@ -131,8 +150,10 @@ impl Source {
     }
 }
 
+/// Represents the contents of the `package.metadata.fetch-source` table in a `Cargo.toml` file.
 pub type Sources = HashMap<String, Source>;
 
+/// Extension trait for parsing a TOML table into a `Sources` map.
 pub trait Parse {
     fn try_parse(table: &toml::Table) -> Result<Self, SourceParseError>
     where

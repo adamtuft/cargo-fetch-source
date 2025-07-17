@@ -6,5 +6,4 @@ mod source;
 mod tar;
 
 pub use error::Error;
-pub use source::{Parse, Sources};
-pub(crate) use source::Artefact;
+pub use source::{Parse, Sources, Artefact};

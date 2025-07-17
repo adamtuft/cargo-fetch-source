@@ -6,6 +6,8 @@ use tar::Archive;
 
 use crate::Artefact;
 
+pub(crate) type TarItems = std::collections::HashMap<std::path::PathBuf, Vec<std::path::PathBuf>>;
+
 #[derive(Debug, serde::Deserialize, PartialEq, Eq)]
 pub struct TarSource {
     #[serde(rename = "tar")]
@@ -13,49 +15,85 @@ pub struct TarSource {
 }
 
 impl TarSource {
-    pub fn fetch(&self, _: &str, dir: PathBuf) -> Result<Artefact, crate::Error> {
+    pub fn fetch<P: AsRef<std::path::Path>>(&self, _: &str, dir: P) -> Result<Artefact, crate::Error> {
         let mut compressed_archive: Vec<u8> = Vec::new();
         let mut cursor = std::io::Cursor::new(&mut compressed_archive);
         let payload = reqwest::blocking::get(&self.url)?.bytes()?;
         io::copy(&mut payload.as_ref(), &mut cursor)?;
-        Ok(extract_tar_from_bytes(&compressed_archive, &dir)
+        Ok(extract_tar_from_bytes(&compressed_archive, dir.as_ref())
             .map(|items| Artefact::Tarball { items })?)
+    }
+
+    pub fn upstream(&self) -> &str {
+        &self.url
     }
 }
 
-fn extract_tar_from_bytes(
-    compressed_archive: &[u8],
-    into: &Path,
-) -> Result<Vec<PathBuf>, io::Error> {
-    let mut extracted_files: Vec<PathBuf> = Vec::new();
-    let mut decompressed_archive = Vec::new();
-    let mut decoder = GzDecoder::new(compressed_archive);
-    decoder.read_to_end(&mut decompressed_archive)?;
-    for archive_entry in Archive::new(std::io::Cursor::new(decompressed_archive)).entries()? {
+fn write_entry_to_file<'a, P, R>(entry: &mut tar::Entry<'a, R>, path: P) -> Result<(), io::Error>
+where
+    P: AsRef<Path>,
+    R: std::io::Read + 'a
+{
+    let mut out_buf = Vec::new();
+    entry.read_to_end(&mut out_buf)?;
+    let mut out_file = fs::File::create(path.as_ref())?;
+    out_file.write_all(&out_buf)
+}
+
+fn decompress_archive(compressed: &[u8]) -> Result<Vec<u8>, io::Error> {
+    let mut decoder = GzDecoder::new(compressed);
+    let mut decompressed = Vec::new();
+    decoder.read_to_end(&mut decompressed)?;
+    Ok(decompressed)
+}
+
+fn read_archive_data<T>(data: T) -> Archive<std::io::Cursor<T>>
+where
+    std::io::Cursor<T>: std::io::Read
+{
+    Archive::new(std::io::Cursor::new(data))
+}
+
+/// Extract the first path component from the rest. Panics if `comps` doesn't have at least one
+/// component.
+fn split_first_component(mut comps: std::path::Components<'_>) -> (PathBuf, PathBuf) {
+    let first = comps.next().unwrap_or_else(|| panic!("There should be at least one path component"));
+    let first = PathBuf::from(first.as_os_str().to_string_lossy().to_string());
+    (first, comps.collect::<PathBuf>())
+}
+
+/// Extract files from a compressed tar archive in memory. Return the extracted items.
+fn extract_tar_from_bytes(compressed: &[u8], out_dir: &Path) -> Result<TarItems, io::Error> {
+    let mut extracted_files: TarItems = Default::default();
+    let archive = decompress_archive(compressed)?;
+    for archive_entry in read_archive_data(archive).entries()? {
         let mut archive_entry = archive_entry?;
         let header = archive_entry.header();
-        let relative_path = header.path()?;
-        let mut path = into.to_path_buf();
-        path.push(&relative_path);
+        let path_in_archive = header.path()?;
+        // Construct the actual destination path relative to the output directory
+        let mut dest = out_dir.to_path_buf();
+        dest.push(&path_in_archive);
         if header.entry_type().is_dir() {
-            std::fs::create_dir_all(&path)?;
+            std::fs::create_dir_all(&dest)?;
         } else {
-            if let Some(p) = path.parent()
-                && !p.exists()
-            {
+            if let Some(p) = dest.parent() && !p.exists() {
                 std::fs::create_dir_all(p)?;
             }
-            let mut file_buffer = Vec::new();
-            archive_entry.read_to_end(&mut file_buffer)?;
-            let mut fs_file = fs::File::create(&path)?;
-            fs_file.write_all(&file_buffer)?;
-            extracted_files.push(path);
+            let (first, rest) = split_first_component(path_in_archive.components());
+            // Note the path to the extracted file
+            if !extracted_files.contains_key(&first) {
+                extracted_files.insert(first.clone(), Vec::new());
+            }
+            // SAFETY: can unwrap here as we just ensured this key exists.
+            let items = extracted_files.get_mut(&first).unwrap();
+            items.push(rest);
+            write_entry_to_file(&mut archive_entry, &dest)?;
         }
     }
     Ok(extracted_files)
 }
 
-fn extract_tar(tar_file: &PathBuf, into: &Path) -> Result<Vec<PathBuf>, io::Error> {
+fn extract_tar(tar_file: &PathBuf, into: &Path) -> Result<TarItems, io::Error> {
     extract_tar_from_bytes(&fs::read(tar_file)?, into)
 }
 
