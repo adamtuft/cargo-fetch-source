@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use super::error::Error;
 use super::git::Git;
 #[cfg(feature = "tar")]
-use super::tar::{TarItems, Tar};
+use super::tar::{Tar, TarItems};
 
 /// Errors encountered when parsing sources from `Cargo.toml`
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -45,9 +45,7 @@ pub enum SourceParseError {
 pub enum Artefact {
     /// The items extracted from a tar archive.
     #[cfg(feature = "tar")]
-    Tarball {
-        items: TarItems,
-    },
+    Tarball { items: TarItems },
     /// The local clone of the repo.
     Repository(PathBuf),
 }

@@ -11,16 +11,16 @@
 //! - Define sources directly in your project metadata.
 //! - Clone git repositories (possibly recursively) by branch, tag, or specific commit (requires `git`
 //!   to be installed and available on `PATH`).
-//! 
+//!
 //! # Optional Features
-//! 
+//!
 //! - `tar`: Download and extract `.tar.gz` archives. This is an optional feature because it uses the
 //!   [`reqwest`] crate which brings quite a few more dependencies.
-//! 
+//!
 //! [`reqwest`]: https://crates.io/crates/reqwest
 //!
 //! # Usage
-//! 
+//!
 //! Add your external sources to your `Cargo.toml`:
 //!
 //! ```toml
@@ -29,9 +29,9 @@
 //! other-repo = { git = "https://github.com/user/project.git", branch = "the-feature" }
 //! my-data = { tar = "https://example.com/data.tar.gz" }
 //! ```
-//! 
+//!
 //! Parse them like so:
-//! 
+//!
 //! ```rust
 //! use fetch_source::{Sources, Parse};
 //! use std::path::PathBuf;
@@ -44,7 +44,7 @@
 //! }
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
-//! 
+//!
 //! Fetch all sources into a directory:
 //!
 //! ```rust
@@ -60,14 +60,14 @@
 //! }
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
-//! 
+//!
 //! # Structure of the `package.metadata.fetch-source` table
-//! 
+//!
 //! Each value in this table must be a table which identifies the remote source it represents:
-//! 
+//!
 //! **Tar archives**
 //! - The `tar` key gives the URL of the archive.
-//! 
+//!
 //! **Git repos**
 //! - The `git` key gives the SSH or HTTPS upstream URL.
 //! - Any one of the `branch`/`tag`/`rev` keys indicates what to clone. The default is to clone the

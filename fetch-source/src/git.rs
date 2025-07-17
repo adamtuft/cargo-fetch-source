@@ -66,11 +66,7 @@ impl Git {
                 stderr_pipe.read_to_string(&mut stderr)?;
             }
             let command = format!("git clone {self}");
-            Err(Error::Subprocess {
-                status,
-                command,
-                stderr,
-            })
+            Err(Error::subprocess(command, status, stderr))
         }
     }
 
