@@ -2,35 +2,51 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use super::error::Error;
-use super::git::GitSource;
+use super::git::Git;
 #[cfg(feature = "tar")]
-use super::tar::{TarSource, TarItems};
+use super::tar::{TarItems, Tar};
 
 /// Errors encountered when parsing sources from `Cargo.toml`
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum SourceParseError {
+    /// An unknown source variant was encountered.
     #[error("expected a valid source type for source '{source_name}': expected one of: {known}", known = SourceVariant::known().iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", "))]
     VariantUnknown { source_name: String },
+
+    /// A source has multiple variants given.
     #[error("multiple source types for source '{source_name}': expected exactly one of: {known}", known = SourceVariant::known().iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", "))]
     VariantMultiple { source_name: String },
+
+    /// A source has a variant which depends on a disabled feature.
     #[error("source '{source_name}' has type '{variant}' but needs disabled feature '{requires}'")]
     VariantDisabled {
         source_name: String,
         variant: String,
         requires: String,
     },
+
+    /// A toml value was expected to be a table.
     #[error("expected value '{name}' to be a toml table")]
     ValueNotTable { name: String },
+
+    /// The `package.metadata.fetch-source` table was not found.
     #[error("required table 'package.metadata.fetch-source' not found in string")]
     SourceTableNotFound,
+
+    /// A toml deserialisation error occurred.
     #[error(transparent)]
     TomlInvalid(#[from] toml::de::Error),
 }
 
+/// Represents the output produced when a [`Source`](crate::source::Source) is fetched.
 #[derive(Debug)]
 pub enum Artefact {
+    /// The items extracted from a tar archive.
     #[cfg(feature = "tar")]
-    Tarball { items: TarItems },
+    Tarball {
+        items: TarItems,
+    },
+    /// The local clone of the repo.
     Repository(PathBuf),
 }
 
@@ -89,8 +105,8 @@ impl SourceVariant {
 #[serde(untagged)]
 pub enum Source {
     #[cfg(feature = "tar")]
-    Tar(TarSource),
-    Git(GitSource),
+    Tar(Tar),
+    Git(Git),
 }
 
 impl std::fmt::Display for Source {
@@ -104,6 +120,7 @@ impl std::fmt::Display for Source {
 }
 
 impl Source {
+    /// Fetch the remote source as declared in `Cargo.toml` and put the resulting [`Artefact`] in `dir`.
     pub fn fetch<P: AsRef<std::path::Path>>(&self, name: &str, dir: P) -> Result<Artefact, Error> {
         match self {
             #[cfg(feature = "tar")]
@@ -112,11 +129,30 @@ impl Source {
         }
     }
 
+    /// The upstream URL (i.e. git repo or archive link).
     pub fn upstream(&self) -> &str {
         match self {
             #[cfg(feature = "tar")]
             Source::Tar(tar) => tar.upstream(),
             Source::Git(git) => git.upstream(),
+        }
+    }
+
+    /// Get a reference to the inner tar source, if it is one.
+    pub fn as_tar(&self) -> Option<&Tar> {
+        if let Source::Tar(s) = self {
+            Some(s)
+        } else {
+            None
+        }
+    }
+
+    /// Get a reference to the inner git source, if it is one.
+    pub fn as_git(&self) -> Option<&Git> {
+        if let Source::Git(s) = self {
+            Some(s)
+        } else {
+            None
         }
     }
 
@@ -156,12 +192,17 @@ impl Source {
 /// Represents the contents of the `package.metadata.fetch-source` table in a `Cargo.toml` file.
 pub type Sources = HashMap<String, Source>;
 
-/// Extension trait for parsing a TOML table into a [`Sources`](crate::source::Sources) map.
+/// Extension trait used to parse a TOML table into a [`Sources`](crate::source::Sources) map. This
+/// is an extension trait because [`Sources`](crate::source::Sources) is a type alias to an external
+/// type.
 pub trait Parse {
+    /// Try to parse a `package.metadata.fetch-source` TOML table.
     fn try_parse(table: &toml::Table) -> Result<Self, SourceParseError>
     where
         Self: Sized;
 
+    /// Try to parse the contents of a `Cargo.toml` document which is expected to contain a
+    /// `package.metadata.fetch-source` table.
     fn try_parse_toml<S: AsRef<str>>(toml_str: S) -> Result<Self, SourceParseError>
     where
         Self: Sized;
@@ -350,7 +391,9 @@ mod test_parsing_sources_table_failure_modes {
         "#;
         assert_eq!(
             Sources::try_parse_toml(document),
-            Err(VariantMultiple { source_name: "bar".to_string() })
+            Err(VariantMultiple {
+                source_name: "bar".to_string()
+            })
         );
     }
 
@@ -365,7 +408,9 @@ mod test_parsing_sources_table_failure_modes {
         "#;
         assert_eq!(
             Sources::try_parse_toml(document),
-            Err(VariantUnknown { source_name: "bar".to_string() })
+            Err(VariantUnknown {
+                source_name: "bar".to_string()
+            })
         );
     }
 }

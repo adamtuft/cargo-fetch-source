@@ -1,10 +1,10 @@
 use std::io::Read;
 
-use super::source::Artefact;
 use super::error::Error;
+use super::source::Artefact;
 
 #[derive(Debug, serde::Deserialize, PartialEq, Eq)]
-pub enum GitReference {
+pub(crate) enum GitReference {
     #[serde(rename = "branch")]
     Branch(String),
     #[serde(rename = "tag")]
@@ -13,8 +13,9 @@ pub enum GitReference {
     Rev(String),
 }
 
+/// Represents a remote git repository to be cloned.
 #[derive(Debug, serde::Deserialize, PartialEq, Eq)]
-pub struct GitSource {
+pub struct Git {
     #[serde(rename = "git")]
     pub(crate) url: String,
     #[serde(flatten)]
@@ -23,15 +24,18 @@ pub struct GitSource {
     pub(crate) recursive: bool,
 }
 
-impl GitSource {
+impl Git {
+    /// The upstream URL.
     pub fn upstream(&self) -> &str {
         &self.url
     }
 
+    /// Whether this repo will be cloned recursively.
     pub fn is_recursive(&self) -> bool {
         self.recursive
     }
 
+    /// The selected branch or tag name, if any.
     pub fn branch_name(&self) -> Option<&str> {
         match self.reference.as_ref() {
             Some(GitReference::Branch(name)) | Some(GitReference::Tag(name)) => Some(name),
@@ -39,6 +43,7 @@ impl GitSource {
         }
     }
 
+    /// The selected commit SHA, if any.
     pub fn commit_sha(&self) -> Option<&str> {
         match self.reference.as_ref() {
             Some(GitReference::Rev(commit_sha)) => Some(commit_sha),
@@ -46,9 +51,10 @@ impl GitSource {
         }
     }
 
+    /// Clone the repository into `dir`.
     pub fn fetch<P: AsRef<std::path::Path>>(&self, name: &str, dir: P) -> Result<Artefact, Error> {
         let repo = dir.as_ref().join(name);
-        let mut proc = crate::process::git_clone_task(self, &repo).spawn()?;
+        let mut proc = self.clone_repo_subprocess(&repo).spawn()?;
         let status = proc.wait()?;
         if status.success() {
             Ok(Artefact::Repository(repo))
@@ -65,9 +71,27 @@ impl GitSource {
             })
         }
     }
+
+    fn clone_repo_subprocess<P: AsRef<std::path::Path>>(&self, into: P) -> std::process::Command {
+        let mut git = std::process::Command::new("git");
+        git.args(["clone", "--depth", "1", "--no-tags"]);
+        if let Some(branch) = self.branch_name() {
+            git.args(["--branch", branch]);
+        } else if let Some(commit_sha) = self.commit_sha() {
+            git.args(["--revision", commit_sha]);
+        }
+        if self.recursive {
+            git.args(["--recurse-submodules", "--shallow-submodules"]);
+        }
+        git.arg(&self.url).arg(into.as_ref());
+        git.stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .stdin(std::process::Stdio::null());
+        git
+    }
 }
 
-impl std::fmt::Display for GitSource {
+impl std::fmt::Display for Git {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.url)?;
         if let Some(reference) = &self.reference {

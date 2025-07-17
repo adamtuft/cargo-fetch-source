@@ -4,18 +4,22 @@ use std::path::{Path, PathBuf};
 use std::{fs, io};
 use tar::Archive;
 
-use super::source::Artefact;
 use super::error::Error;
+use super::source::Artefact;
 
+/// A map of items extracted from an archive. Keys are either top-level files, or top-level
+/// directies mapped to a list of their contents.
 pub type TarItems = std::collections::HashMap<std::path::PathBuf, Vec<std::path::PathBuf>>;
 
+/// Represents a remote tar archive.
 #[derive(Debug, serde::Deserialize, PartialEq, Eq)]
-pub struct TarSource {
+pub struct Tar {
     #[serde(rename = "tar")]
     url: String,
 }
 
-impl TarSource {
+impl Tar {
+    /// Download and extract the archive into `dir`.
     pub fn fetch<P: AsRef<std::path::Path>>(&self, _: &str, dir: P) -> Result<Artefact, Error> {
         let mut compressed_archive: Vec<u8> = Vec::new();
         let mut cursor = std::io::Cursor::new(&mut compressed_archive);
@@ -25,6 +29,7 @@ impl TarSource {
             .map(|items| Artefact::Tarball { items })?)
     }
 
+    /// The remote URL.
     pub fn upstream(&self) -> &str {
         &self.url
     }
@@ -33,7 +38,7 @@ impl TarSource {
 fn write_entry_to_file<'a, P, R>(entry: &mut tar::Entry<'a, R>, path: P) -> Result<(), io::Error>
 where
     P: AsRef<Path>,
-    R: std::io::Read + 'a
+    R: std::io::Read + 'a,
 {
     let mut out_buf = Vec::new();
     entry.read_to_end(&mut out_buf)?;
@@ -50,7 +55,7 @@ fn decompress_archive(compressed: &[u8]) -> Result<Vec<u8>, io::Error> {
 
 fn read_archive_data<T>(data: T) -> Archive<std::io::Cursor<T>>
 where
-    std::io::Cursor<T>: std::io::Read
+    std::io::Cursor<T>: std::io::Read,
 {
     Archive::new(std::io::Cursor::new(data))
 }
@@ -58,7 +63,9 @@ where
 /// Extract the first path component from the rest. Panics if `comps` doesn't have at least one
 /// component.
 fn split_first_component(mut comps: std::path::Components<'_>) -> (PathBuf, PathBuf) {
-    let first = comps.next().unwrap_or_else(|| panic!("There should be at least one path component"));
+    let first = comps
+        .next()
+        .unwrap_or_else(|| panic!("There should be at least one path component"));
     let first = PathBuf::from(first.as_os_str().to_string_lossy().to_string());
     (first, comps.collect::<PathBuf>())
 }
@@ -77,7 +84,9 @@ fn extract_tar_from_bytes(compressed: &[u8], out_dir: &Path) -> Result<TarItems,
         if header.entry_type().is_dir() {
             std::fs::create_dir_all(&dest)?;
         } else {
-            if let Some(p) = dest.parent() && !p.exists() {
+            if let Some(p) = dest.parent()
+                && !p.exists()
+            {
                 std::fs::create_dir_all(p)?;
             }
             let (first, rest) = split_first_component(path_in_archive.components());
