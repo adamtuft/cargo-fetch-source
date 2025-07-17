@@ -5,11 +5,11 @@
 //! `Cargo.toml` under `[package.metadata.fetch-source]` and fetch them programmatically.
 //! This crate is intended for use in build scripts where Rust bindings are generated from external
 //! source(s).
-//! 
+//!
 //! Inspired by CMake's [`FetchContent`] module.
 //!
 //! [`FetchContent`]: https://cmake.org/cmake/help/latest/module/FetchContent.html#fetchcontent
-//! 
+//!
 //! # Core Features
 //!
 //! - Define sources directly in your project metadata.
@@ -37,7 +37,7 @@
 //! other-repo = { git = "https://github.com/user/project.git", branch = "the-feature" }
 //! my-data = { tar = "https://example.com/data.tar.gz" }
 //! "#;
-//! 
+//!
 //! for (name, source) in Sources::try_parse_toml(cargo_toml)? {
 //!     println!("{name}: {source}");
 //! }
@@ -57,7 +57,7 @@
 //! syn = { git = "https://github.com/dtolnay/syn.git" }
 //! syn-old = { tar = "https://github.com/dtolnay/syn/archive/refs/tags/1.0.0.tar.gz" }
 //! "#;
-//! 
+//!
 //! for (name, source) in Sources::try_parse_toml(cargo_toml)? {
 //!     let output_dir = PathBuf::from("./external");
 //!     source.fetch(&name, output_dir)?;
