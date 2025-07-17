@@ -59,7 +59,7 @@
 //! "#;
 //!
 //! for (name, source) in Sources::try_parse_toml(cargo_toml)? {
-//!     let output_dir = PathBuf::from("./external");
+//!     let output_dir = PathBuf::from(std::env::temp_dir());
 //!     source.fetch(&name, output_dir)?;
 //! }
 //! # Ok(())
