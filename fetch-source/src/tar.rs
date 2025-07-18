@@ -23,11 +23,16 @@ pub struct Tar {
 impl Tar {
     /// Download and extract the archive into `dir`.
     pub fn fetch<P: AsRef<std::path::Path>>(&self, _: &str, dir: P) -> Result<Artefact, Error> {
-        let mut compressed_archive: Vec<u8> = Vec::new();
-        let mut cursor = std::io::Cursor::new(&mut compressed_archive);
-        let payload = reqwest::blocking::get(&self.url)?.bytes()?;
-        io::copy(&mut payload.as_ref(), &mut cursor)?;
-        Ok(extract_tar_from_bytes(&compressed_archive, dir.as_ref())?.into())
+        let compressed_bytes = reqwest::blocking::get(&self.url)?.bytes()?;
+        Ok(extract_tar_from_bytes(&compressed_bytes, dir.as_ref())?.into())
+    }
+
+    /// Download and extract the archive into `dir`. Consumes `self` to move data into the async
+    /// context. Requires `async` feature.
+    #[cfg(feature = "async")]
+    pub async fn fetch_async(self, _: &str, dir: PathBuf) -> Result<Artefact, Error> {
+        let compressed_bytes = reqwest::get(&self.url).await?.bytes().await?;
+        Ok(extract_tar_from_bytes(&compressed_bytes, &dir)?.into())
     }
 
     /// The remote URL.

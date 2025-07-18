@@ -18,6 +18,9 @@ toml = "0.9.1"
 [features]
 tar = ["dep:tar", "reqwest"]
 reqwest = ["dep:reqwest"]
+# The async feature doesn't enable anything, as it only has an effect if 'dep:reqwest' is enabled
+# when it provides the option to fetch tar sources asynchronously
+async = []
 
 [package.metadata.fetch-source]
 otf2 = { tar = "https://zenodo.org/records/4682684/files/otf2-2.3.tar.gz" }

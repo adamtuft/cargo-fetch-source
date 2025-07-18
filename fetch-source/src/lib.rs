@@ -20,6 +20,7 @@
 //!
 //! - `tar`: Download and extract `.tar.gz` archives. This is an optional feature because it uses the
 //!   [`reqwest`] crate which brings quite a few more dependencies.
+//! - `async`: Enable fetching `tar` sources asynchronously.
 //!
 //! [`reqwest`]: https://crates.io/crates/reqwest
 //!
