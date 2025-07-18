@@ -1,9 +1,9 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{Context, bail};
 use clap::Parser;
 
-use fetch::Parse;
+use fetch::{Apply, Parse};
 use fetch_source::{self as fetch, Artefact};
 
 // Shamelessly borrowed from https://github.com/crate-ci/clap-cargo/blob/0378657ffdf2b67bcd6f1ab56e04a1322b92dd0e/src/style.rs
@@ -55,82 +55,88 @@ struct Args {
     out_dir: Option<PathBuf>,
 }
 
-fn main() -> Result<(), anyhow::Error> {
-    let mut args = Args::parse();
+#[derive(Debug)]
+struct ValidatedArgs {
+    manifest_file: PathBuf,
+    out_dir: PathBuf,
+}
 
-    // If the manifest path is not provided, search for it in the directory hierarchy.
-    if args.manifest_file.is_none() {
-        let mut current_dir = std::env::current_dir()?;
-        loop {
-            let manifest = current_dir.join("Cargo.toml");
-            if manifest.is_file() {
-                args.manifest_file = Some(manifest);
-                break;
-            }
-            if !current_dir.pop() {
-                bail!(
-                    "could not find `Cargo.toml` in the current directory or any parent directory"
-                );
-            }
-        }
-    }
+impl TryFrom<Args> for ValidatedArgs {
+    type Error = anyhow::Error;
 
-    // If the output directory is not provided, try to use `OUT_DIR` and fall bacl to the current directory.
-    if args.out_dir.is_none() {
-        args.out_dir = match std::env::var("OUT_DIR") {
-            Ok(s) => Some(std::path::PathBuf::from(s)),
-            Err(_) => Some(std::env::current_dir()?),
+    fn try_from(args: Args) -> Result<Self, Self::Error> {
+        // If the manifest path is not provided, search for it in the directory hierarchy.
+        let manifest_file = if let Some(path) = args.manifest_file {
+            path
+        } else {
+            let mut current_dir = std::env::current_dir()?;
+            loop {
+                let manifest = current_dir.join("Cargo.toml");
+                if manifest.is_file() {
+                    break manifest;
+                }
+                if !current_dir.pop() {
+                    bail!(
+                        "could not find `Cargo.toml` in the current directory or any parent directory"
+                    );
+                }
+            }
         };
+
+        // If the output directory is not provided, try to use `OUT_DIR` and fall back to the current directory.
+        let out_dir = match args.out_dir {
+            Some(path) => path,
+            None => match std::env::var("OUT_DIR") {
+                Ok(s) => std::path::PathBuf::from(s),
+                Err(_) => std::env::current_dir()?,
+            },
+        };
+
+        // Validate that the output directory exists
+        if !out_dir.exists() {
+            bail!("Output directory does not exist: {}", out_dir.display());
+        }
+
+        Ok(ValidatedArgs {
+            manifest_file,
+            out_dir,
+        })
     }
+}
+
+fn main() -> Result<(), anyhow::Error> {
+    let args = ValidatedArgs::try_from(Args::parse())?;
 
     println!("{args:#?}");
 
-    // SAFETY: we have just ensured these values are Some(_)
-    let out_dir = args.out_dir.unwrap().canonicalize()?;
-    let manifest_file = args.manifest_file.unwrap();
+    let out_dir = args.out_dir.canonicalize()?;
+    let manifest_file = args.manifest_file;
     let document = std::fs::read_to_string(&manifest_file).context(format!(
         "Failed to read manifest file: {}",
         manifest_file.display()
     ))?;
 
-    let context = "hello!".to_string();
-    let callback = |name: &str,
-                    source: fetch::Source,
-                    out_dir: &Path,
-                    ctx: &String|
-     -> Result<(), anyhow::Error> {
-        match source.fetch(name, out_dir) {
-            Ok(Artefact::Tar(tar)) => {
-                println!("Extracted {} into:", tar.url);
-                for (dir, files) in tar.items {
-                    println!(" => {:#?} ({} items)", out_dir.join(dir), files.len());
+    let mut artefacts: Vec<fetch::Artefact> = Vec::new();
+
+    fetch::Sources::try_parse_toml(&document)
+        .context("Failed to parse Cargo.toml")?
+        .apply_mut(|n, s| {
+            match s.fetch(n, &out_dir) {
+                Ok(Artefact::Tar(tar)) => {
+                    println!("Extracted {} into:", tar.url);
+                    for (dir, files) in &tar.items {
+                        println!(" => {:#?} ({} items)", out_dir.join(dir), files.len());
+                    }
+                    artefacts.push(Artefact::Tar(tar));
+                }
+                Ok(Artefact::Git(path)) => {
+                    println!("Fetched repository into {path:?}");
+                    artefacts.push(Artefact::Git(path));
+                }
+                Err(e) => {
+                    return Err(e).context(format!("Failed to fetch source '{n}'"));
                 }
             }
-            Ok(Artefact::Git(path)) => {
-                println!("Fetched repository into {path:?}")
-            }
-            Err(e) => {
-                return Err(e).context(format!("Failed to fetch source '{name}'"));
-            }
-        }
-        Ok(())
-    };
-
-    process_sources_with_callback(&document, &out_dir, &context, callback)
-}
-
-fn process_sources_with_callback<T, F>(
-    document: &str,
-    out_dir: &Path,
-    context: &T,
-    callback: F,
-) -> Result<(), anyhow::Error>
-where
-    F: Fn(&str, fetch::Source, &Path, &T) -> Result<(), anyhow::Error>,
-{
-    let sources = fetch::Sources::try_parse_toml(document).context("Failed to parse Cargo.toml")?;
-    for (name, source) in sources {
-        callback(&name, source, out_dir, context)?;
-    }
-    Ok(())
+            Ok(())
+        })
 }
