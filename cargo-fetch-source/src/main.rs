@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use anyhow::Context;
+use anyhow::{bail, Context};
 use clap::Parser;
 
 use fetch::Parse;
@@ -46,31 +46,58 @@ mod style {
 struct Args {
     /// Path to the Cargo.toml file. If not given, search for the file in the current and parent
     /// directories
-    #[arg(long, short = 'm')]
+    #[arg(long, short = 'm', value_name = "PATH")]
     manifest_file: Option<PathBuf>,
 
     /// Output directory for fetched sources. If absent, try the `OUT_DIR` environment variable,
     /// then fall back to the current working directory. The given directory must exist.
-    #[arg(long, short = 'o')]
+    #[arg(long, short = 'o', value_name = "PATH")]
     out_dir: Option<PathBuf>,
 }
 
 fn main() -> Result<(), anyhow::Error> {
-    let args = Args::parse();
+    let mut args = Args::parse();
+
+    // If the manifest path is not provided, search for it in the directory hierarchy.
+    if args.manifest_file.is_none() {
+        let mut current_dir = std::env::current_dir()?;
+        loop {
+            let manifest = current_dir.join("Cargo.toml");
+            if manifest.is_file() {
+                args.manifest_file = Some(manifest);
+                break;
+            }
+            if !current_dir.pop() {
+                bail!("could not find `Cargo.toml` in the current directory or any parent directory");
+            }
+        }
+    }
+
+    // If the output directory is not provided, try to use `OUT_DIR` and fall bacl to the current directory.
+    if args.out_dir.is_none() {
+        args.out_dir = match std::env::var("OUT_DIR") {
+            Ok(s) => Some(std::path::PathBuf::from(s)),
+            Err(_) => Some(std::env::current_dir()?),
+        };
+    }
 
     println!("{args:#?}");
 
-    match std::fs::read_to_string(&args.manifest_file) {
+    // SAFETY: we have just ensured these values are Some(_)
+    let out_dir = args.out_dir.unwrap();
+    let manifest_file = args.manifest_file.unwrap();
+
+    match std::fs::read_to_string(&manifest_file) {
         Ok(document) => match fetch::Sources::try_parse_toml(&document) {
             Ok(sources) => {
                 for (name, source) in sources {
-                    match source.fetch(&name, args.out_dir.canonicalize().unwrap()) {
+                    match source.fetch(&name, &out_dir.canonicalize()?) {
                         Ok(Artefact::Tar(tar)) => {
                             println!("Extracted {} into:", tar.url);
                             for (dir, files) in tar.items {
                                 println!(
                                     " => {:#?} ({} items)",
-                                    args.out_dir.join(dir),
+                                    out_dir.join(dir),
                                     files.len()
                                 );
                             }
@@ -90,7 +117,10 @@ fn main() -> Result<(), anyhow::Error> {
             }
         },
         Err(e) => {
-            return Err(e).context("Failed to read Cargo.toml");
+            return Err(e).context(format!(
+                "Failed to read manifest file: {}",
+                manifest_file.display()
+            ));
         }
     }
     Ok(())
