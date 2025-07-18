@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::{Context, bail};
 use clap::Parser;
 
-use fetch::{Apply, Parse};
+use fetch::Parse;
 use fetch_source::{self as fetch, Artefact};
 
 // Shamelessly borrowed from https://github.com/crate-ci/clap-cargo/blob/0378657ffdf2b67bcd6f1ab56e04a1322b92dd0e/src/style.rs
@@ -116,27 +116,41 @@ fn main() -> Result<(), anyhow::Error> {
         manifest_file.display()
     ))?;
 
-    let mut artefacts: Vec<fetch::Artefact> = Vec::new();
-
-    fetch::Sources::try_parse_toml(&document)
+    // Approach 1: Use try_fold to accumulate results and provide progress tracking
+    let (total_sources, _artefacts) = fetch::Sources::try_parse_toml(&document)
         .context("Failed to parse Cargo.toml")?
-        .apply_mut(|n, s| {
-            match s.fetch(n, &out_dir) {
-                Ok(Artefact::Tar(tar)) => {
-                    println!("Extracted {} into:", tar.url);
-                    for (dir, files) in &tar.items {
-                        println!(" => {:#?} ({} items)", out_dir.join(dir), files.len());
+        .into_iter()
+        .try_fold(
+            (0usize, Vec::new()),
+            |(count, mut artefacts), pair| {
+                let (name, source) = pair;
+                let source_num = count + 1;
+                println!("🔄 [{source_num}] Fetching source '{name}'...");
+                match source.fetch(&name, &out_dir) {
+                    Ok(artefact) => {
+                        match artefact {
+                            Artefact::Git(ref path) => {
+                                println!("✅ 🔗 Cloned repository into {path:?}");
+                            }
+                            Artefact::Tar(ref tar) => {
+                                println!("✅ 📦 Extracted {} into:", tar.url);
+                                for (dir, files) in &tar.items {
+                                    println!(
+                                        "   └─ {:?} ({} items)",
+                                        out_dir.join(dir).display(),
+                                        files.len()
+                                    );
+                                }
+                            }
+                        }
+                        artefacts.push(artefact);
+                        Ok((source_num, artefacts))
                     }
-                    artefacts.push(Artefact::Tar(tar));
+                    Err(e) => Err(e).context(format!("Failed to fetch source '{name}'")),
                 }
-                Ok(Artefact::Git(path)) => {
-                    println!("Fetched repository into {path:?}");
-                    artefacts.push(Artefact::Git(path));
-                }
-                Err(e) => {
-                    return Err(e).context(format!("Failed to fetch source '{n}'"));
-                }
-            }
-            Ok(())
-        })
+            },
+        )?;
+
+    println!("\n🎉 Successfully fetched {total_sources} source(s)!");
+    Ok(())
 }
