@@ -1,6 +1,6 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use clap::Parser;
 
 use fetch::Parse;
@@ -68,7 +68,9 @@ fn main() -> Result<(), anyhow::Error> {
                 break;
             }
             if !current_dir.pop() {
-                bail!("could not find `Cargo.toml` in the current directory or any parent directory");
+                bail!(
+                    "could not find `Cargo.toml` in the current directory or any parent directory"
+                );
             }
         }
     }
@@ -84,44 +86,51 @@ fn main() -> Result<(), anyhow::Error> {
     println!("{args:#?}");
 
     // SAFETY: we have just ensured these values are Some(_)
-    let out_dir = args.out_dir.unwrap();
+    let out_dir = args.out_dir.unwrap().canonicalize()?;
     let manifest_file = args.manifest_file.unwrap();
+    let document = std::fs::read_to_string(&manifest_file).context(format!(
+        "Failed to read manifest file: {}",
+        manifest_file.display()
+    ))?;
 
-    match std::fs::read_to_string(&manifest_file) {
-        Ok(document) => match fetch::Sources::try_parse_toml(&document) {
-            Ok(sources) => {
-                for (name, source) in sources {
-                    match source.fetch(&name, &out_dir.canonicalize()?) {
-                        Ok(Artefact::Tar(tar)) => {
-                            println!("Extracted {} into:", tar.url);
-                            for (dir, files) in tar.items {
-                                println!(
-                                    " => {:#?} ({} items)",
-                                    out_dir.join(dir),
-                                    files.len()
-                                );
-                            }
-                        }
-                        Ok(Artefact::Git(path)) => {
-                            println!("Fetched repository into {path:?}")
-                        }
-                        Err(e) => {
-                            return Err(e)
-                                .context(format!("Failed to fetch source '{name}'"));
-                        }
-                    }
+    let context = "hello!".to_string();
+    let callback = |name: &str,
+                    source: fetch::Source,
+                    out_dir: &Path,
+                    ctx: &String|
+     -> Result<(), anyhow::Error> {
+        match source.fetch(name, out_dir) {
+            Ok(Artefact::Tar(tar)) => {
+                println!("Extracted {} into:", tar.url);
+                for (dir, files) in tar.items {
+                    println!(" => {:#?} ({} items)", out_dir.join(dir), files.len());
                 }
             }
-            Err(e) => {
-                return Err(e).context("Failed to parse Cargo.toml");
+            Ok(Artefact::Git(path)) => {
+                println!("Fetched repository into {path:?}")
             }
-        },
-        Err(e) => {
-            return Err(e).context(format!(
-                "Failed to read manifest file: {}",
-                manifest_file.display()
-            ));
+            Err(e) => {
+                return Err(e).context(format!("Failed to fetch source '{name}'"));
+            }
         }
+        Ok(())
+    };
+
+    process_sources_with_callback(&document, &out_dir, &context, callback)
+}
+
+fn process_sources_with_callback<T, F>(
+    document: &str,
+    out_dir: &Path,
+    context: &T,
+    callback: F,
+) -> Result<(), anyhow::Error>
+where
+    F: Fn(&str, fetch::Source, &Path, &T) -> Result<(), anyhow::Error>,
+{
+    let sources = fetch::Sources::try_parse_toml(document).context("Failed to parse Cargo.toml")?;
+    for (name, source) in sources {
+        callback(&name, source, out_dir, context)?;
     }
     Ok(())
 }
