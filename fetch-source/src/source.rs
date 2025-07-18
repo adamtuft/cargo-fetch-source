@@ -50,6 +50,20 @@ pub enum Artefact {
     Repository(PathBuf),
 }
 
+#[doc(hidden)]
+impl From<TarItems> for Artefact {
+    fn from(items: TarItems) -> Self {
+        Self::Tarball { items }
+    }
+}
+
+#[doc(hidden)]
+impl From<PathBuf> for Artefact {
+    fn from(repo: PathBuf) -> Self {
+        Self::Repository(repo)
+    }
+}
+
 /// Allowed source variants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum SourceVariant {

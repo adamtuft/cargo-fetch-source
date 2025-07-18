@@ -27,8 +27,7 @@ impl Tar {
         let mut cursor = std::io::Cursor::new(&mut compressed_archive);
         let payload = reqwest::blocking::get(&self.url)?.bytes()?;
         io::copy(&mut payload.as_ref(), &mut cursor)?;
-        Ok(extract_tar_from_bytes(&compressed_archive, dir.as_ref())
-            .map(|items| Artefact::Tarball { items })?)
+        Ok(extract_tar_from_bytes(&compressed_archive, dir.as_ref())?.into())
     }
 
     /// The remote URL.

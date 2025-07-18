@@ -59,7 +59,7 @@ impl Git {
         let mut proc = self.clone_repo_subprocess(&repo).spawn()?;
         let status = proc.wait()?;
         if status.success() {
-            Ok(Artefact::Repository(repo))
+            Ok(repo.into())
         } else {
             let mut stderr = String::new();
             if let Some(mut stderr_pipe) = proc.stderr.take() {
