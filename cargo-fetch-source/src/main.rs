@@ -27,9 +27,9 @@ fn main() -> Result<(), anyhow::Error> {
             Ok(sources) => {
                 for (name, source) in sources {
                     match source.fetch(&name, args.out_dir.canonicalize().unwrap()) {
-                        Ok(Artefact::Tarball { items }) => {
-                            println!("Extracted {} into:", source.upstream());
-                            for (dir, files) in items {
+                        Ok(Artefact::Tar(tar)) => {
+                            println!("Extracted {} into:", tar.url);
+                            for (dir, files) in tar.items {
                                 println!(
                                     " => {:#?} ({} items)",
                                     args.out_dir.join(dir),
@@ -37,12 +37,12 @@ fn main() -> Result<(), anyhow::Error> {
                                 );
                             }
                         }
-                        Ok(Artefact::Repository(path)) => {
+                        Ok(Artefact::Git(path)) => {
                             println!("Fetched repository into {path:?}")
                         }
                         Err(e) => {
                             return Err(e)
-                                .context(format!("Failed to fetch source '{name}': {source}"));
+                                .context(format!("Failed to fetch source '{name}'"));
                         }
                     }
                 }

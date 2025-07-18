@@ -1,12 +1,9 @@
 //! Core types for intereacting with sources declared in `Cargo.toml`.
 
-use std::collections::HashMap;
-use std::path::PathBuf;
-
 use super::error::Error;
-use super::git::Git;
+use super::git::{Git, GitArtefact};
 #[cfg(feature = "tar")]
-use super::tar::{Tar, TarItems};
+use super::tar::{Tar, TarArtefact};
 
 /// Errors encountered when parsing sources from `Cargo.toml`
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -43,25 +40,9 @@ pub enum SourceParseError {
 /// Represents the output produced when a [`Source`](crate::source::Source) is fetched.
 #[derive(Debug)]
 pub enum Artefact {
-    /// The items extracted from a tar archive.
     #[cfg(feature = "tar")]
-    Tarball { items: TarItems },
-    /// The local clone of the repo.
-    Repository(PathBuf),
-}
-
-#[doc(hidden)]
-impl From<TarItems> for Artefact {
-    fn from(items: TarItems) -> Self {
-        Self::Tarball { items }
-    }
-}
-
-#[doc(hidden)]
-impl From<PathBuf> for Artefact {
-    fn from(repo: PathBuf) -> Self {
-        Self::Repository(repo)
-    }
+    Tar(TarArtefact),
+    Git(GitArtefact),
 }
 
 /// Allowed source variants.
@@ -135,7 +116,7 @@ impl std::fmt::Display for Source {
 
 impl Source {
     /// Fetch the remote source as declared in `Cargo.toml` and put the resulting [`Artefact`] in `dir`.
-    pub fn fetch<P: AsRef<std::path::Path>>(&self, name: &str, dir: P) -> Result<Artefact, Error> {
+    pub fn fetch<P: AsRef<std::path::Path>>(self, name: &str, dir: P) -> Result<Artefact, Error> {
         match self {
             #[cfg(feature = "tar")]
             Source::Tar(tar) => tar.fetch(name, dir),
@@ -205,7 +186,7 @@ impl Source {
 }
 
 /// Represents the contents of the `package.metadata.fetch-source` table in a `Cargo.toml` file.
-pub type Sources = HashMap<String, Source>;
+pub type Sources = std::collections::HashMap<String, Source>;
 
 /// Extension trait used to parse a TOML table into a [`Sources`](crate::source::Sources) map. This
 /// is an extension trait because [`Sources`](crate::source::Sources) is a type alias to an external

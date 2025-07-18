@@ -6,7 +6,7 @@ use super::error::Error;
 use super::source::Artefact;
 
 #[derive(Debug, serde::Deserialize, PartialEq, Eq)]
-pub(crate) enum GitReference {
+pub enum GitReference {
     #[serde(rename = "branch")]
     Branch(String),
     #[serde(rename = "tag")]
@@ -15,31 +15,45 @@ pub(crate) enum GitReference {
     Rev(String),
 }
 
+/// A definition of a git remote to be (or which was) cloned
+#[derive(Debug, serde::Deserialize, PartialEq, Eq)]
+pub struct GitSpec {
+    #[serde(rename = "git")]
+    pub url: String,
+    #[serde(flatten)]
+    pub reference: Option<GitReference>,
+    #[serde(default)]
+    pub recursive: bool,
+}
+
+/// Represents a git repo cloned according to a source definition
+#[derive(Debug)]
+pub struct GitArtefact {
+    pub local: std::path::PathBuf,
+    pub remote: GitSpec,
+}
+
 /// Represents a remote git repository to be cloned.
 #[derive(Debug, serde::Deserialize, PartialEq, Eq)]
 pub struct Git {
-    #[serde(rename = "git")]
-    pub(crate) url: String,
     #[serde(flatten)]
-    pub(crate) reference: Option<GitReference>,
-    #[serde(default)]
-    pub(crate) recursive: bool,
+    spec: GitSpec,
 }
 
 impl Git {
     /// The upstream URL.
     pub fn upstream(&self) -> &str {
-        &self.url
+        &self.spec.url
     }
 
     /// Whether this repo will be cloned recursively.
     pub fn is_recursive(&self) -> bool {
-        self.recursive
+        self.spec.recursive
     }
 
     /// The selected branch or tag name, if any.
     pub fn branch_name(&self) -> Option<&str> {
-        match self.reference.as_ref() {
+        match self.spec.reference.as_ref() {
             Some(GitReference::Branch(name)) | Some(GitReference::Tag(name)) => Some(name),
             _ => None,
         }
@@ -47,19 +61,19 @@ impl Git {
 
     /// The selected commit SHA, if any.
     pub fn commit_sha(&self) -> Option<&str> {
-        match self.reference.as_ref() {
+        match self.spec.reference.as_ref() {
             Some(GitReference::Rev(commit_sha)) => Some(commit_sha),
             _ => None,
         }
     }
 
     /// Clone the repository into `dir`.
-    pub fn fetch<P: AsRef<std::path::Path>>(&self, name: &str, dir: P) -> Result<Artefact, Error> {
-        let repo = dir.as_ref().join(name);
-        let mut proc = self.clone_repo_subprocess(&repo).spawn()?;
+    pub fn fetch<P: AsRef<std::path::Path>>(self, name: &str, dir: P) -> Result<Artefact, Error> {
+        let local = dir.as_ref().join(name);
+        let mut proc = self.clone_repo_subprocess(&local).spawn()?;
         let status = proc.wait()?;
         if status.success() {
-            Ok(repo.into())
+            Ok(Artefact::Git(GitArtefact { local, remote: self.spec }))
         } else {
             let mut stderr = String::new();
             if let Some(mut stderr_pipe) = proc.stderr.take() {
@@ -78,10 +92,10 @@ impl Git {
         } else if let Some(commit_sha) = self.commit_sha() {
             git.args(["--revision", commit_sha]);
         }
-        if self.recursive {
+        if self.spec.recursive {
             git.args(["--recurse-submodules", "--shallow-submodules"]);
         }
-        git.arg(&self.url).arg(into.as_ref());
+        git.arg(&self.spec.url).arg(into.as_ref());
         git.stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .stdin(std::process::Stdio::null());
@@ -91,15 +105,15 @@ impl Git {
 
 impl std::fmt::Display for Git {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.url)?;
-        if let Some(reference) = &self.reference {
+        write!(f, "{}", self.spec.url)?;
+        if let Some(reference) = &self.spec.reference {
             match reference {
                 GitReference::Branch(branch) => write!(f, " (branch: {branch})")?,
                 GitReference::Tag(tag) => write!(f, " (tag: {tag})")?,
                 GitReference::Rev(rev) => write!(f, " (rev: {rev})")?,
             }
         }
-        if self.recursive {
+        if self.spec.recursive {
             write!(f, " [recursive]")?;
         }
         Ok(())

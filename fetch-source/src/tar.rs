@@ -13,6 +13,13 @@ use super::source::Artefact;
 /// directies mapped to a list of their contents.
 pub type TarItems = std::collections::HashMap<std::path::PathBuf, Vec<std::path::PathBuf>>;
 
+/// Represents the items extracted from a tar archive.
+#[derive(Debug)]
+pub struct TarArtefact {
+    pub url: String,
+    pub items: TarItems
+}
+
 /// Represents a remote tar archive.
 #[derive(Debug, serde::Deserialize, PartialEq, Eq)]
 pub struct Tar {
@@ -22,17 +29,21 @@ pub struct Tar {
 
 impl Tar {
     /// Download and extract the archive into `dir`.
-    pub fn fetch<P: AsRef<std::path::Path>>(&self, _: &str, dir: P) -> Result<Artefact, Error> {
-        let compressed_bytes = reqwest::blocking::get(&self.url)?.bytes()?;
-        Ok(extract_tar_from_bytes(&compressed_bytes, dir.as_ref())?.into())
+    pub fn fetch<P: AsRef<std::path::Path>>(self, _: &str, dir: P) -> Result<Artefact, Error> {
+        let bytes = reqwest::blocking::get(&self.url)?.bytes()?;
+        let archive = decompress(&bytes)?;
+        let items = extract_tar_archive(&archive, dir.as_ref())?;
+        Ok(Artefact::Tar(TarArtefact{ url: self.url, items }))
     }
 
-    /// Download and extract the archive into `dir`. Consumes `self` to move data into the async
+    /// Download and extract the archive into `dir`. Consumes inputs to move data into the async
     /// context. Requires `async` feature.
     #[cfg(feature = "async")]
     pub async fn fetch_async(self, _: &str, dir: PathBuf) -> Result<Artefact, Error> {
-        let compressed_bytes = reqwest::get(&self.url).await?.bytes().await?;
-        Ok(extract_tar_from_bytes(&compressed_bytes, &dir)?.into())
+        let bytes = reqwest::get(&self.url).await?.bytes().await?;
+        let archive = decompress(&bytes)?;
+        let items = extract_tar_archive(&archive, &dir)?;
+        Ok(Artefact::Tar(TarArtefact{ url: self.url, items }))
     }
 
     /// The remote URL.
@@ -41,33 +52,15 @@ impl Tar {
     }
 }
 
-fn write_entry_to_file<'a, P, R>(entry: &mut tar::Entry<'a, R>, path: P) -> Result<(), io::Error>
-where
-    P: AsRef<Path>,
-    R: std::io::Read + 'a,
-{
-    let mut out_buf = Vec::new();
-    entry.read_to_end(&mut out_buf)?;
-    let mut out_file = fs::File::create(path.as_ref())?;
-    out_file.write_all(&out_buf)
-}
-
-fn decompress_archive(compressed: &[u8]) -> Result<Vec<u8>, io::Error> {
-    let mut decoder = GzDecoder::new(compressed);
-    let mut decompressed = Vec::new();
-    decoder.read_to_end(&mut decompressed)?;
-    Ok(decompressed)
-}
-
-fn read_archive_data<T>(data: T) -> Archive<std::io::Cursor<T>>
-where
-    std::io::Cursor<T>: std::io::Read,
-{
-    Archive::new(std::io::Cursor::new(data))
+fn decompress<Data: AsRef<[u8]>>(input: Data) -> Result<Vec<u8>, io::Error> {
+    let mut decoder = GzDecoder::new(input.as_ref());
+    let mut output = Vec::new();
+    decoder.read_to_end(&mut output)?;
+    Ok(output)
 }
 
 /// Extract the first path component from the rest. Panics if `comps` doesn't have at least one
-/// component.
+/// component, because we expect to only receive valid paths from a tar archive.
 fn split_first_component(mut comps: std::path::Components<'_>) -> (PathBuf, PathBuf) {
     let first = comps
         .next()
@@ -76,11 +69,10 @@ fn split_first_component(mut comps: std::path::Components<'_>) -> (PathBuf, Path
     (first, comps.collect::<PathBuf>())
 }
 
-/// Extract files from a compressed tar archive in memory. Return the extracted items.
-fn extract_tar_from_bytes(compressed: &[u8], out_dir: &Path) -> Result<TarItems, io::Error> {
+/// Extract files from a tar archive in memory. Return the extracted items.
+fn extract_tar_archive(archive: &[u8], out_dir: &Path) -> Result<TarItems, io::Error> {
     let mut extracted_files: TarItems = Default::default();
-    let archive = decompress_archive(compressed)?;
-    for archive_entry in read_archive_data(archive).entries()? {
+    for archive_entry in Archive::new(archive).entries()? {
         let mut archive_entry = archive_entry?;
         let header = archive_entry.header();
         let path_in_archive = header.path()?;
@@ -103,7 +95,8 @@ fn extract_tar_from_bytes(compressed: &[u8], out_dir: &Path) -> Result<TarItems,
             // SAFETY: can unwrap here as we just ensured this key exists.
             let items = extracted_files.get_mut(&first).unwrap();
             items.push(rest);
-            write_entry_to_file(&mut archive_entry, &dest)?;
+            let mut out_file = fs::File::create(&dest)?;
+            std::io::copy(&mut archive_entry, &mut out_file)?;
         }
     }
     Ok(extracted_files)
