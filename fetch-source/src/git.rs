@@ -73,7 +73,10 @@ impl Git {
         let mut proc = self.clone_repo_subprocess(&local).spawn()?;
         let status = proc.wait()?;
         if status.success() {
-            Ok(Artefact::Git(GitArtefact { local, remote: self.spec }))
+            Ok(Artefact::Git(GitArtefact {
+                local,
+                remote: self.spec,
+            }))
         } else {
             let mut stderr = String::new();
             if let Some(mut stderr_pipe) = proc.stderr.take() {

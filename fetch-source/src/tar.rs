@@ -17,7 +17,7 @@ pub type TarItems = std::collections::HashMap<std::path::PathBuf, Vec<std::path:
 #[derive(Debug)]
 pub struct TarArtefact {
     pub url: String,
-    pub items: TarItems
+    pub items: TarItems,
 }
 
 /// Represents a remote tar archive.
@@ -33,7 +33,10 @@ impl Tar {
         let bytes = reqwest::blocking::get(&self.url)?.bytes()?;
         let archive = decompress(&bytes)?;
         let items = extract_tar_archive(&archive, dir.as_ref())?;
-        Ok(Artefact::Tar(TarArtefact{ url: self.url, items }))
+        Ok(Artefact::Tar(TarArtefact {
+            url: self.url,
+            items,
+        }))
     }
 
     /// Download and extract the archive into `dir`. Consumes inputs to move data into the async
@@ -43,7 +46,10 @@ impl Tar {
         let bytes = reqwest::get(&self.url).await?.bytes().await?;
         let archive = decompress(&bytes)?;
         let items = extract_tar_archive(&archive, &dir)?;
-        Ok(Artefact::Tar(TarArtefact{ url: self.url, items }))
+        Ok(Artefact::Tar(TarArtefact {
+            url: self.url,
+            items,
+        }))
     }
 
     /// The remote URL.

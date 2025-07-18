@@ -204,6 +204,12 @@ pub trait Parse {
         Self: Sized;
 }
 
+/// Extension trait used to apply a callback to entries in a [`Sources`](crate::source::Sources) map.
+pub trait Apply {
+    fn apply<E, F: Fn(&str, Source) -> Result<(), E>>(self, callback: F) -> Result<(), E>;
+    fn apply_mut<E, F: FnMut(&str, Source) -> Result<(), E>>(self, callback: F) -> Result<(), E>;
+}
+
 impl Parse for Sources {
     /// Parse a `package.metadata.fetch-source` table into a into a [`Sources`](crate::source::Sources) map
     fn try_parse(table: &toml::Table) -> Result<Self, SourceParseError> {
@@ -227,6 +233,28 @@ impl Parse for Sources {
             .and_then(|v| v.as_table())
             .ok_or(SourceParseError::SourceTableNotFound)?;
         Self::try_parse(sources_table)
+    }
+}
+
+impl Apply for Sources {
+    fn apply<E, F>(self, callback: F) -> Result<(), E>
+    where
+        F: Fn(&str, Source) -> Result<(), E>,
+    {
+        for (n, s) in self {
+            callback(&n, s)?
+        }
+        Ok(())
+    }
+
+    fn apply_mut<E, F>(self, mut callback: F) -> Result<(), E>
+    where
+        F: FnMut(&str, Source) -> Result<(), E>,
+    {
+        for (n, s) in self {
+            callback(&n, s)?
+        }
+        Ok(())
     }
 }
 
