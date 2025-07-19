@@ -188,46 +188,28 @@ impl Source {
 /// Represents the contents of the `package.metadata.fetch-source` table in a `Cargo.toml` file.
 pub type Sources = std::collections::HashMap<String, Source>;
 
-/// Extension trait used to parse a TOML table into a [`Sources`](crate::source::Sources) map. This
-/// is an extension trait because [`Sources`](crate::source::Sources) is a type alias to an external
-/// type.
-pub trait Parse {
-    /// Try to parse a `package.metadata.fetch-source` TOML table.
-    fn try_parse(table: &toml::Table) -> Result<Self, SourceParseError>
-    where
-        Self: Sized;
-
-    /// Try to parse the contents of a `Cargo.toml` document which is expected to contain a
-    /// `package.metadata.fetch-source` table.
-    fn try_parse_toml<S: AsRef<str>>(toml_str: S) -> Result<Self, SourceParseError>
-    where
-        Self: Sized;
+/// Parse a `package.metadata.fetch-source` table into a [`Sources`](crate::source::Sources) map
+pub fn try_parse(table: &toml::Table) -> Result<Sources, SourceParseError> {
+    table
+        .iter()
+        .map(|(k, v)| {
+            let (n, t) = validate_table(k, v)?;
+            Source::parse(&n, &t).map(|s| (n, s))
+        })
+        .collect()
 }
 
-impl Parse for Sources {
-    /// Parse a `package.metadata.fetch-source` table into a into a [`Sources`](crate::source::Sources) map
-    fn try_parse(table: &toml::Table) -> Result<Self, SourceParseError> {
-        table
-            .iter()
-            .map(|(k, v)| {
-                let (n, t) = validate_table(k, v)?;
-                Source::parse(&n, &t).map(|s| (n, s))
-            })
-            .collect()
-    }
-
-    /// Parse the contents of a Cargo.toml file containing the `package.metadata.fetch-source` table
-    /// into a into a [`Sources`](crate::source::Sources) map.
-    fn try_parse_toml<S: AsRef<str>>(toml_str: S) -> Result<Self, SourceParseError> {
-        let table = toml_str.as_ref().parse::<toml::Table>()?;
-        let sources_table = table
-            .get("package")
-            .and_then(|v| v.get("metadata"))
-            .and_then(|v| v.get("fetch-source"))
-            .and_then(|v| v.as_table())
-            .ok_or(SourceParseError::SourceTableNotFound)?;
-        Self::try_parse(sources_table)
-    }
+/// Parse the contents of a Cargo.toml file containing the `package.metadata.fetch-source` table
+/// into a [`Sources`](crate::source::Sources) map.
+pub fn try_parse_toml<S: AsRef<str>>(toml_str: S) -> Result<Sources, SourceParseError> {
+    let table = toml_str.as_ref().parse::<toml::Table>()?;
+    let sources_table = table
+        .get("package")
+        .and_then(|v| v.get("metadata"))
+        .and_then(|v| v.get("fetch-source"))
+        .and_then(|v| v.as_table())
+        .ok_or(SourceParseError::SourceTableNotFound)?;
+    try_parse(sources_table)
 }
 
 /// Validate that a TOML value is a table, returning the named table
@@ -314,7 +296,7 @@ mod test_parsing_sources_table_failure_modes {
     #[test]
     fn parse_invalid_toml_str_fails() {
         let document = "this is not a valid toml document :( uh-oh!";
-        let result = Sources::try_parse_toml(document);
+        let result = try_parse_toml(document);
         assert!(matches!(result, Err(TomlInvalid(_))));
     }
 
@@ -328,7 +310,7 @@ mod test_parsing_sources_table_failure_modes {
             foo = { git = "git@github.com:foo/bar.git" }
             bar = { tar = "https://example.com/foo.tar.gz" }
         "#;
-        assert_eq!(Sources::try_parse_toml(document), Err(SourceTableNotFound));
+        assert_eq!(try_parse_toml(document), Err(SourceTableNotFound));
     }
 
     #[test]
@@ -341,7 +323,7 @@ mod test_parsing_sources_table_failure_modes {
             not-a-table = "actually a string"
         "#;
         assert_eq!(
-            Sources::try_parse_toml(document),
+            try_parse_toml(document),
             Err(ValueNotTable {
                 name: "not-a-table".to_string()
             })
@@ -359,7 +341,7 @@ mod test_parsing_sources_table_failure_modes {
             bar = { tar = "https://example.com/foo.tar.gz" }
         "#;
         assert_eq!(
-            Sources::try_parse_toml(document),
+            try_parse_toml(document),
             Err(VariantDisabled {
                 source_name: "bar".to_string(),
                 variant: "tar".to_string(),
@@ -378,7 +360,7 @@ mod test_parsing_sources_table_failure_modes {
             bar = { tar = "https://example.com/foo.tar.gz", git = "git@github.com:foo/bar.git" }
         "#;
         assert_eq!(
-            Sources::try_parse_toml(document),
+            try_parse_toml(document),
             Err(VariantMultiple {
                 source_name: "bar".to_string()
             })
@@ -395,7 +377,7 @@ mod test_parsing_sources_table_failure_modes {
             bar = { zim = "https://example.com/foo.tar.gz" }
         "#;
         assert_eq!(
-            Sources::try_parse_toml(document),
+            try_parse_toml(document),
             Err(VariantUnknown {
                 source_name: "bar".to_string()
             })

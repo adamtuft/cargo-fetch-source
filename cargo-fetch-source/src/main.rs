@@ -1,7 +1,5 @@
 use anyhow::Context;
 
-use fetch_source::{Sources, Parse};
-
 mod args;
 mod fetch;
 mod progress;
@@ -16,7 +14,7 @@ fn main() -> Result<(), anyhow::Error> {
         args.manifest_file.display()
     ))?;
 
-    let artefacts = Sources::try_parse_toml(&document)
+    let artefacts = fetch_source::try_parse_toml(&document)
         .context("Failed to parse Cargo.toml")?
         .into_iter()
         .try_fold(Vec::new(), |artefacts, element| {
