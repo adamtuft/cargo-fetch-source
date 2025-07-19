@@ -17,8 +17,8 @@ fn main() -> Result<(), anyhow::Error> {
     let artefacts = fetch_source::try_parse_toml(&document)
         .context("Failed to parse Cargo.toml")?
         .into_iter()
-        .try_fold(Vec::new(), |artefacts, element| {
-            fetch::fetch_serial(artefacts, element, &args.out_dir)
+        .try_fold(Vec::new(), |artefacts, (name, source)| {
+            fetch::fetch_serial(artefacts, name, source, &args.out_dir)
         })?;
 
     println!("\n🎉 Successfully fetched {} source(s)!", artefacts.len());

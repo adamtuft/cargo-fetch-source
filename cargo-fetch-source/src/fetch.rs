@@ -4,7 +4,8 @@ use fetch_source::{Source, Artefact};
 
 pub fn fetch_serial(
     mut artefacts: Vec<Artefact>,
-    (name, source): (String, Source),
+    name: String,
+    source: Source,
     out_dir: &std::path::Path,
 ) -> Result<Vec<Artefact>, anyhow::Error> {
     println!("🔄 Fetching {name}...");
