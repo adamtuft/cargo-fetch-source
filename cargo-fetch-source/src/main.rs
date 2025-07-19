@@ -6,6 +6,37 @@ use fetch_source::{self as fetch, Artefact};
 mod args;
 mod progress;
 
+fn fetch_source(
+    mut artefacts: Vec<Artefact>,
+    (name, source): (String, fetch::Source),
+    out_dir: &std::path::Path,
+) -> Result<Vec<Artefact>, anyhow::Error> {
+    let source_num = artefacts.len() + 1;
+    println!("🔄 [{source_num}] Fetching source '{name}'...");
+    match source.fetch(&name, out_dir) {
+        Ok(artefact) => {
+            match artefact {
+                Artefact::Git(ref path) => {
+                    println!("✅ 🔗 Cloned repository into {path:?}");
+                }
+                Artefact::Tar(ref tar) => {
+                    println!("✅ 📦 Extracted {} into:", tar.url);
+                    for (dir, files) in &tar.items {
+                        println!(
+                            "   └─ {:?} ({} items)",
+                            out_dir.join(dir).display(),
+                            files.len()
+                        );
+                    }
+                }
+            }
+            artefacts.push(artefact);
+            Ok(artefacts)
+        }
+        Err(e) => Err(e).context(format!("Failed to fetch source '{name}'")),
+    }
+}
+
 fn main() -> Result<(), anyhow::Error> {
     let args = args::parse()?;
 
@@ -21,32 +52,7 @@ fn main() -> Result<(), anyhow::Error> {
         .into_iter()
         .try_fold(
             Vec::new(),
-            |mut artefacts, (name, source)| {
-                let source_num = artefacts.len() + 1;
-                println!("🔄 [{source_num}] Fetching source '{name}'...");
-                match source.fetch(&name, &args.out_dir) {
-                    Ok(artefact) => {
-                        match artefact {
-                            Artefact::Git(ref path) => {
-                                println!("✅ 🔗 Cloned repository into {path:?}");
-                            }
-                            Artefact::Tar(ref tar) => {
-                                println!("✅ 📦 Extracted {} into:", tar.url);
-                                for (dir, files) in &tar.items {
-                                    println!(
-                                        "   └─ {:?} ({} items)",
-                                        args.out_dir.join(dir).display(),
-                                        files.len()
-                                    );
-                                }
-                            }
-                        }
-                        artefacts.push(artefact);
-                        Ok(artefacts)
-                    }
-                    Err(e) => Err(e).context(format!("Failed to fetch source '{name}'")),
-                }
-            },
+            |artefacts, element| fetch_source(artefacts, element, &args.out_dir),
         )?;
 
     println!("\n🎉 Successfully fetched {} source(s)!", artefacts.len());
