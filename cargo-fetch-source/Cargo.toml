@@ -8,6 +8,7 @@ anstyle = "1.0.11"
 anyhow = "1.0.98"
 clap = { version = "4.5.41", features = ["derive"] }
 fetch-source = { path = "../fetch-source", features = ["tar"] }
+indicatif = "0.18.0"
 
 [package.metadata.fetch-source]
 otf2 = { tar = "https://zenodo.org/records/4682684/files/otf2-2.3.tar.gz" }
