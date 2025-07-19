@@ -22,3 +22,16 @@ pub fn fetch_serial(
     artefacts.push(artefact);
     Ok(artefacts)
 }
+
+pub fn fetch_parallel(
+    mut handles: Vec<std::thread::JoinHandle<Result<Artefact, fetch_source::Error>>>,
+    name: String,
+    source: Source,
+    out_dir: &std::path::Path,
+) -> Vec<std::thread::JoinHandle<Result<Artefact, fetch_source::Error>>> {
+    let out_dir = out_dir.to_path_buf();
+    handles.push(std::thread::spawn(move || {
+        source.fetch(&name, &out_dir)
+    }));
+    handles
+}
