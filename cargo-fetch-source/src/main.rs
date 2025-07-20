@@ -2,6 +2,8 @@ use anyhow::Context;
 
 use fetch_source::Artefact;
 
+use crate::fetch::fetch_in_parallel_scope;
+
 mod args;
 mod fetch;
 mod progress;
@@ -16,16 +18,12 @@ fn main() -> Result<(), anyhow::Error> {
         args.manifest_file.display()
     ))?;
 
-    let handles = fetch_source::try_parse_toml(&document)
-        .context("Failed to parse Cargo.toml")?
-        .into_iter()
-        .fold(Vec::new(), |handles, (name, source)| {
-            fetch::fetch_parallel(handles, name, source, &args.out_dir)
-        });
+    let sources = fetch_source::try_parse_toml(&document)
+        .context("Failed to parse Cargo.toml")?;
 
     let mut success = 0usize;
-    for join in handles.into_iter().map(|h| h.join()) {
-        match join {
+    for result in fetch_in_parallel_scope(sources, &args.out_dir) {
+        match result {
             Ok(Ok(Artefact::Git(git))) => {
                 println!("✅ 🔗 Cloned repository into {}", git.local.display());
                 success += 1;
@@ -42,6 +40,33 @@ fn main() -> Result<(), anyhow::Error> {
             }
         }
     }
+
+    // let handles = fetch_source::try_parse_toml(&document)
+    //     .context("Failed to parse Cargo.toml")?
+    //     .into_iter()
+    //     .fold(Vec::new(), |handles, (name, source)| {
+    //         fetch::fetch_parallel(handles, name, source, &args.out_dir)
+    //     });
+
+    // let mut success = 0usize;
+    // for join in handles.into_iter().map(|h| h.join()) {
+    //     match join {
+    //         Ok(Ok(Artefact::Git(git))) => {
+    //             println!("✅ 🔗 Cloned repository into {}", git.local.display());
+    //             success += 1;
+    //         }
+    //         Ok(Ok(Artefact::Tar(tar))) => {
+    //             println!("✅ 📦 Extracted {} into {}", tar.url, &args.out_dir.display());
+    //             success += 1;
+    //         }
+    //         Ok(Err(fetch_error)) => {
+    //             eprintln!("❌ Failed to fetch source: {fetch_error}");
+    //         }
+    //         Err(thread_error) => {
+    //             eprintln!("❌ Thread panicked: {thread_error:?}");
+    //         }
+    //     }
+    // }
 
     println!("\n🎉 Successfully fetched {success} source(s)!");
 
