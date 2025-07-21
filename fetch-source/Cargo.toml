@@ -10,6 +10,7 @@ path = "src/lib.rs"
 [dependencies]
 anyhow = "1.0.98"
 flate2 = "1.1.2"
+rayon = { version = "1.10.0", optional = true }
 reqwest = { version = "0.12.22", features = ["blocking"], optional = true }
 serde = { version = "1.0.219", features = ["derive"] }
 tar = { version = "0.4.44", optional = true }
@@ -17,11 +18,13 @@ thiserror = "2.0.12"
 toml = "0.9.1"
 
 [features]
+default = ["rayon"]
 tar = ["dep:tar", "reqwest"]
 reqwest = ["dep:reqwest"]
 # The async feature doesn't enable anything, as it only has an effect if 'dep:reqwest' is enabled
 # when it provides the option to fetch tar sources asynchronously
 async = []
+rayon = ["dep:rayon"]
 
 [package.metadata.fetch-source]
 otf2 = { tar = "https://zenodo.org/records/4682684/files/otf2-2.3.tar.gz" }
