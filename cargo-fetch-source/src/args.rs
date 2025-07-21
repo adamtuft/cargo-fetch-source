@@ -80,9 +80,7 @@ impl TryFrom<Args> for ValidatedArgs {
                     break manifest;
                 }
                 if !current_dir.pop() {
-                    return Err(AppError::ArgValidation(format!(
-                        "could not find `Cargo.toml` in the current directory or any parent directory"
-                    )));
+                    return Err(AppError::ArgValidation("could not find 'Cargo.toml' in the current directory or any parent directory".to_string()));
                 }
             }
         };
