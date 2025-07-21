@@ -1,83 +1,72 @@
-use std::fs::create_dir;
-
-use anyhow::Context;
-
-use fetch_source::Artefact;
-
-use crate::fetch::{fetch_in_parallel_scope, fetch_in_parallel_scope_with_multiprogress};
+use crate::{error::AppError, fetch::fetch_in_parallel_multiprogress_rayon};
 
 mod args;
+mod error;
 mod fetch;
-mod progress;
 
-fn main() -> Result<(), anyhow::Error> {
+fn main() -> std::process::ExitCode {
+    match run() {
+        Ok(()) => std::process::ExitCode::from(0),
+        Err(err) => err.into(),
+    }
+}
+
+fn run() -> Result<(), error::AppError> {
     let args = args::parse()?;
 
-    println!("{args:#?}");
-
-    let document = std::fs::read_to_string(&args.manifest_file).context(format!(
-        "Failed to read manifest file: {}",
-        args.manifest_file.display()
-    ))?;
-
-    let sources = fetch_source::try_parse_toml(&document).context("Failed to parse Cargo.toml")?;
-
-    for result in fetch_in_parallel_scope_with_multiprogress(sources, &args.out_dir) {
-        if let Err(e) = result { eprintln!("❌ Thread panicked: {e:?}") }
+    // SAFETY: This is called before any thread-spawning constructs are encountered, so there is
+    // definitely only one thread active.
+    if let Some(threads) = args.threads {
+        unsafe { std::env::set_var("RAYON_NUM_THREADS", format!("{threads}")) };
     }
 
-    // let mut success = 0usize;
-    // for result in fetch_in_parallel_scope(sources, &args.out_dir) {
-    //     match result {
-    //         Ok(Ok(Artefact::Git(git))) => {
-    //             println!("✅ 🔗 Cloned repository into {}", git.local.display());
-    //             success += 1;
-    //         }
-    //         Ok(Ok(Artefact::Tar(tar))) => {
-    //             println!(
-    //                 "✅ 📦 Extracted {} into {}",
-    //                 tar.url,
-    //                 &args.out_dir.display()
-    //             );
-    //             success += 1;
-    //         }
-    //         Ok(Err(fetch_error)) => {
-    //             eprintln!("❌ Failed to fetch source: {fetch_error}");
-    //         }
-    //         Err(thread_error) => {
-    //             eprintln!("❌ Thread panicked: {thread_error:?}");
-    //         }
-    //     }
-    // }
+    let document =
+        std::fs::read_to_string(&args.manifest_file).map_err(|err| AppError::ManifestRead {
+            manifest: format!("{}", args.manifest_file.display()),
+            err,
+        })?;
 
-    // let handles = fetch_source::try_parse_toml(&document)
-    //     .context("Failed to parse Cargo.toml")?
-    //     .into_iter()
-    //     .fold(Vec::new(), |handles, (name, source)| {
-    //         fetch::fetch_parallel(handles, name, source, &args.out_dir)
-    //     });
+    let sources =
+        fetch_source::try_parse_toml(&document).map_err(|err| AppError::ManifestParse {
+            manifest: format!("{}", args.manifest_file.display()),
+            err,
+        })?;
+    let num_sources = sources.len();
 
-    // let mut success = 0usize;
-    // for join in handles.into_iter().map(|h| h.join()) {
-    //     match join {
-    //         Ok(Ok(Artefact::Git(git))) => {
-    //             println!("✅ 🔗 Cloned repository into {}", git.local.display());
-    //             success += 1;
-    //         }
-    //         Ok(Ok(Artefact::Tar(tar))) => {
-    //             println!("✅ 📦 Extracted {} into {}", tar.url, &args.out_dir.display());
-    //             success += 1;
-    //         }
-    //         Ok(Err(fetch_error)) => {
-    //             eprintln!("❌ Failed to fetch source: {fetch_error}");
-    //         }
-    //         Err(thread_error) => {
-    //             eprintln!("❌ Thread panicked: {thread_error:?}");
-    //         }
-    //     }
-    // }
+    let errors: Vec<_> = fetch_in_parallel_multiprogress_rayon(sources, &args.out_dir)
+        .into_iter()
+        .filter_map(Result::err)
+        .collect();
+    let num_errors = errors.len();
 
-    // println!("\n🎉 Successfully fetched {success} source(s)!");
+    if !errors.is_empty() {
+        let error_style = console::Style::new().red().bold();
+        eprintln!("Failed to fetch {} sources:", errors.len());
+        for (k, err) in (1..).zip(&errors) {
+            eprintln!(
+                "Error [{k}/{num_errors}]: {}",
+                error_style.apply_to(err.to_string())
+            );
+            err.chain().skip(1).for_each(|cause| {
+                let cause_text = format!("{cause}");
+                let mut line_iter = cause_text.split("\n");
+                eprintln!(
+                    "  caused by: {}",
+                    error_style.apply_to(line_iter.next().unwrap_or("?"))
+                );
+                line_iter.for_each(|line| eprintln!("             {}", error_style.apply_to(line)));
+            });
+        }
+    }
 
-    Ok(())
+    let num_success = num_sources - num_errors;
+    if num_success > 0 {
+        println!("🎉 Successfully fetched {num_success} source(s)!");
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(AppError::Fetch(num_errors))
+    }
 }

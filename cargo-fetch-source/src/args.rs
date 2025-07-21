@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use clap::Parser;
+
+use crate::error::AppError;
 
 // Shamelessly borrowed from https://github.com/crate-ci/clap-cargo/blob/0378657ffdf2b67bcd6f1ab56e04a1322b92dd0e/src/style.rs
 // thanks to https://stackoverflow.com/a/79614957
@@ -42,7 +44,7 @@ mod style {
 #[command(term_width = 80)]
 struct Args {
     /// Path to the Cargo.toml file. If not given, search for the file in the current and parent
-    /// directories
+    /// directories.
     #[arg(long, short = 'm', value_name = "PATH")]
     manifest_file: Option<PathBuf>,
 
@@ -50,16 +52,21 @@ struct Args {
     /// then fall back to the current working directory. The given directory must exist.
     #[arg(long, short = 'o', value_name = "PATH")]
     out_dir: Option<PathBuf>,
+
+    /// Number of threads to spawn. Defaults to one per logical CPU.
+    #[arg(long, short = 't', value_name = "NUM-THREADS")]
+    threads: Option<u32>,
 }
 
 #[derive(Debug)]
 pub struct ValidatedArgs {
     pub manifest_file: PathBuf,
     pub out_dir: PathBuf,
+    pub threads: Option<u32>,
 }
 
 impl TryFrom<Args> for ValidatedArgs {
-    type Error = anyhow::Error;
+    type Error = AppError;
 
     fn try_from(args: Args) -> Result<Self, Self::Error> {
         // If the manifest path is not provided, search for it in the directory hierarchy.
@@ -73,9 +80,9 @@ impl TryFrom<Args> for ValidatedArgs {
                     break manifest;
                 }
                 if !current_dir.pop() {
-                    bail!(
+                    return Err(AppError::ArgValidation(format!(
                         "could not find `Cargo.toml` in the current directory or any parent directory"
-                    );
+                    )));
                 }
             }
         };
@@ -91,16 +98,20 @@ impl TryFrom<Args> for ValidatedArgs {
 
         // Validate that the output directory exists
         if !out_dir.exists() {
-            bail!("Output directory does not exist: {}", out_dir.display());
+            return Err(AppError::ArgValidation(format!(
+                "output directory does not exist: {}",
+                out_dir.display()
+            )));
         }
 
         Ok(ValidatedArgs {
             manifest_file,
             out_dir: out_dir.canonicalize()?,
+            threads: args.threads,
         })
     }
 }
 
-pub fn parse() -> Result<ValidatedArgs, anyhow::Error> {
+pub fn parse() -> Result<ValidatedArgs, AppError> {
     ValidatedArgs::try_from(Args::parse())
 }
