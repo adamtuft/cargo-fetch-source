@@ -2,7 +2,7 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process as proc;
 
-fn make_progress_spinner(m: &indicatif::MultiProgress) -> indicatif::ProgressBar {
+pub fn make_progress_spinner(m: &indicatif::MultiProgress) -> indicatif::ProgressBar {
     let pb = m.add(indicatif::ProgressBar::new_spinner());
     pb.set_style(indicatif::ProgressStyle::default_spinner());
     pb.enable_steady_tick(std::time::Duration::from_millis(120));

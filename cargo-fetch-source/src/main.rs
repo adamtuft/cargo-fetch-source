@@ -1,8 +1,10 @@
+use std::fs::create_dir;
+
 use anyhow::Context;
 
 use fetch_source::Artefact;
 
-use crate::fetch::fetch_in_parallel_scope;
+use crate::fetch::{fetch_in_parallel_scope, fetch_in_parallel_scope_with_multiprogress};
 
 mod args;
 mod fetch;
@@ -18,28 +20,35 @@ fn main() -> Result<(), anyhow::Error> {
         args.manifest_file.display()
     ))?;
 
-    let sources = fetch_source::try_parse_toml(&document)
-        .context("Failed to parse Cargo.toml")?;
+    let sources = fetch_source::try_parse_toml(&document).context("Failed to parse Cargo.toml")?;
 
-    let mut success = 0usize;
-    for result in fetch_in_parallel_scope(sources, &args.out_dir) {
-        match result {
-            Ok(Ok(Artefact::Git(git))) => {
-                println!("✅ 🔗 Cloned repository into {}", git.local.display());
-                success += 1;
-            }
-            Ok(Ok(Artefact::Tar(tar))) => {
-                println!("✅ 📦 Extracted {} into {}", tar.url, &args.out_dir.display());
-                success += 1;
-            }
-            Ok(Err(fetch_error)) => {
-                eprintln!("❌ Failed to fetch source: {fetch_error}");
-            }
-            Err(thread_error) => {
-                eprintln!("❌ Thread panicked: {thread_error:?}");
-            }
-        }
+    for result in fetch_in_parallel_scope_with_multiprogress(sources, &args.out_dir) {
+        if let Err(e) = result { eprintln!("❌ Thread panicked: {e:?}") }
     }
+
+    // let mut success = 0usize;
+    // for result in fetch_in_parallel_scope(sources, &args.out_dir) {
+    //     match result {
+    //         Ok(Ok(Artefact::Git(git))) => {
+    //             println!("✅ 🔗 Cloned repository into {}", git.local.display());
+    //             success += 1;
+    //         }
+    //         Ok(Ok(Artefact::Tar(tar))) => {
+    //             println!(
+    //                 "✅ 📦 Extracted {} into {}",
+    //                 tar.url,
+    //                 &args.out_dir.display()
+    //             );
+    //             success += 1;
+    //         }
+    //         Ok(Err(fetch_error)) => {
+    //             eprintln!("❌ Failed to fetch source: {fetch_error}");
+    //         }
+    //         Err(thread_error) => {
+    //             eprintln!("❌ Thread panicked: {thread_error:?}");
+    //         }
+    //     }
+    // }
 
     // let handles = fetch_source::try_parse_toml(&document)
     //     .context("Failed to parse Cargo.toml")?
@@ -68,7 +77,7 @@ fn main() -> Result<(), anyhow::Error> {
     //     }
     // }
 
-    println!("\n🎉 Successfully fetched {success} source(s)!");
+    // println!("\n🎉 Successfully fetched {success} source(s)!");
 
     Ok(())
 }
