@@ -13,13 +13,13 @@ impl Error {
     pub(crate) fn subprocess(
         command: String,
         status: std::process::ExitStatus,
-        stderr: String,
+        cause: anyhow::Error,
     ) -> Self {
         Self {
             inner: ErrorKind::Subprocess {
                 command,
                 status,
-                stderr,
+                cause,
             },
         }
     }
@@ -41,11 +41,12 @@ pub(crate) enum ErrorKind {
     #[error(transparent)]
     Parse(#[from] crate::SourceParseError),
 
-    #[error("Command '{command}' exited with status {status}\n{stderr}")]
+    #[error("Command '{command}' exited with status {status}")]
     Subprocess {
         command: String,
         status: std::process::ExitStatus,
-        stderr: String,
+        #[source]
+        cause: anyhow::Error,
     },
 }
 

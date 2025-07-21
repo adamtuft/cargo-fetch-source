@@ -82,8 +82,18 @@ impl Git {
             if let Some(mut stderr_pipe) = proc.stderr.take() {
                 stderr_pipe.read_to_string(&mut stderr)?;
             }
-            let command = format!("git clone {self}");
-            Err(Error::subprocess(command, status, stderr))
+            let mut command = "git clone ".to_string();
+            if let Some(branch) = self.branch_name() {
+                command.push_str(&format!("--branch {branch}"));
+            } else if let Some(commit_sha) = self.commit_sha() {
+                command.push_str(&format!("--revision {commit_sha}"));
+            }
+            if self.spec.recursive {
+                command.push_str("--recurse-submodules --shallow-submodules");
+            }
+            command.push_str(&format!("{} {}", self.spec.url, local.display()));
+            let root_cause = anyhow::anyhow!(stderr);
+            Err(Error::subprocess(command, status, root_cause))
         }
     }
 
