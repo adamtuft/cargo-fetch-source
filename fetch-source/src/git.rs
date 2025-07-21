@@ -5,7 +5,7 @@ use std::io::Read;
 use super::error::Error;
 use super::source::Artefact;
 
-#[derive(Debug, serde::Deserialize, PartialEq, Eq)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 pub enum GitReference {
     #[serde(rename = "branch")]
     Branch(String),
@@ -16,7 +16,7 @@ pub enum GitReference {
 }
 
 /// A definition of a git remote to be (or which was) cloned
-#[derive(Debug, serde::Deserialize, PartialEq, Eq)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 pub struct GitSpec {
     #[serde(rename = "git")]
     pub url: String,
@@ -34,7 +34,7 @@ pub struct GitArtefact {
 }
 
 /// Represents a remote git repository to be cloned.
-#[derive(Debug, serde::Deserialize, PartialEq, Eq)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 pub struct Git {
     #[serde(flatten)]
     spec: GitSpec,

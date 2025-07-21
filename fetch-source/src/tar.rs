@@ -21,7 +21,7 @@ pub struct TarArtefact {
 }
 
 /// Represents a remote tar archive.
-#[derive(Debug, serde::Deserialize, PartialEq, Eq)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 pub struct Tar {
     #[serde(rename = "tar")]
     url: String,

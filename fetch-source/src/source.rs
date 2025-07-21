@@ -96,7 +96,7 @@ impl SourceVariant {
 }
 
 /// Represents an entry in the `package.metadata.fetch-source` table.
-#[derive(Debug, serde::Deserialize, PartialEq, Eq)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum Source {
     #[cfg(feature = "tar")]
