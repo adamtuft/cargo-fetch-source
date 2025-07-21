@@ -4,6 +4,8 @@ mod args;
 mod error;
 mod fetch;
 
+use args::OutputFormat;
+
 fn main() -> std::process::ExitCode {
     match run() {
         Ok(()) => std::process::ExitCode::from(0),
@@ -20,12 +22,6 @@ fn main() -> std::process::ExitCode {
 fn run() -> Result<(), error::AppError> {
     let args = args::parse()?;
 
-    // SAFETY: This is called before any thread-spawning constructs are encountered, so there is
-    // definitely only one thread active.
-    if let Some(threads) = args.threads {
-        unsafe { std::env::set_var("RAYON_NUM_THREADS", format!("{threads}")) };
-    }
-
     let document =
         std::fs::read_to_string(&args.manifest_file).map_err(|err| AppError::ManifestRead {
             manifest: format!("{}", args.manifest_file.display()),
@@ -38,9 +34,14 @@ fn run() -> Result<(), error::AppError> {
             err,
         })?;
 
-    match args.action {
-        args::Action::Fetch => fetch(sources, &args.out_dir),
-        args::Action::List => list(sources, &args.out_dir),
+    match args.command {
+        args::ValidatedCommand::Fetch { out_dir, threads } => {
+            if let Some(threads) = threads {
+                unsafe { std::env::set_var("RAYON_NUM_THREADS", format!("{threads}")) };
+            }
+            fetch(sources, &out_dir)
+        },
+        args::ValidatedCommand::List { format } => list(sources, format),
     }
 }
 
@@ -84,29 +85,35 @@ fn fetch(sources: fetch_source::Sources, out_dir: &std::path::Path) -> Result<()
     }
 }
 
-fn list(sources: fetch_source::Sources, _: &std::path::Path) -> Result<(), error::AppError> {
-    // for (name, source) in sources {
-    //     println!("{name}:");
-    //     match source {
-    //         fetch_source::Source::Tar(tar) => {
-    //             println!("   upstream: {}", tar.upstream());
-    //         },
-    //         fetch_source::Source::Git(git) => {
-    //             println!("   upstream: {}", git.upstream());
-    //             if let Some(branch) = git.branch_name() {
-    //                 println!("  branch/tag:  {branch}");
-    //             } else if let Some(commit) = git.commit_sha() {
-    //                 println!("  commit:  {commit}");
-    //             }
-    //             println!("  recursive: {}", git.is_recursive());
-    //         },
-    //     }
-    // }
-    
-    // Use serde to serialise `sources` to TOML, then print it.
-    // SAFETY: unwrap here because we only accept values that were previously deserialised
-    let toml = toml::to_string(&sources).unwrap();
-    println!("{toml}");
-
+fn list(sources: fetch_source::Sources, format: Option<OutputFormat>) -> Result<(), error::AppError> {
+    match format {
+        Some(OutputFormat::Toml) => {
+            // SAFETY: unwrap here because we only accept values that were previously deserialised
+            println!("{}", toml::to_string(&sources).unwrap());
+        },
+        Some(OutputFormat::Json) => {
+            // SAFETY: unwrap here because we only accept values that were previously deserialised
+            println!("{}", serde_json::to_string_pretty(&sources).unwrap());
+        }
+        None => {
+            for (name, source) in sources {
+                println!("{name}:");
+                match source {
+                    fetch_source::Source::Tar(tar) => {
+                        println!("   upstream: {}", tar.upstream());
+                    },
+                    fetch_source::Source::Git(git) => {
+                        println!("   upstream: {}", git.upstream());
+                        if let Some(branch) = git.branch_name() {
+                            println!("  branch/tag:  {branch}");
+                        } else if let Some(commit) = git.commit_sha() {
+                            println!("  commit:  {commit}");
+                        }
+                        println!("  recursive: {}", git.is_recursive());
+                    },
+                }
+            }
+        }
+    }
     Ok(())
 }

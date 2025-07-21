@@ -42,36 +42,57 @@ const APP_STYLING: clap::builder::styling::Styles = clap::builder::styling::Styl
 struct Args {
     /// Path to the Cargo.toml file. If not given, search for the file in the current and parent
     /// directories.
-    #[arg(long, short = 'm', value_name = "PATH")]
+    #[arg(long, short = 'm', value_name = "PATH", global = true)]
     manifest_file: Option<PathBuf>,
 
-    /// Output directory for fetched sources. If absent, try the `OUT_DIR` environment variable,
-    /// then fall back to the current working directory. The given directory must exist.
-    #[arg(long, short = 'o', value_name = "PATH")]
-    out_dir: Option<PathBuf>,
+    #[command(subcommand)]
+    command: Command,
+}
 
-    /// Number of threads to spawn. Defaults to one per logical CPU.
-    #[arg(long, short = 't', value_name = "NUM-THREADS")]
-    threads: Option<u32>,
+#[derive(Debug, clap::Subcommand)]
+enum Command {
+    /// Fetch the sources specified in the manifest
+    Fetch {
+        /// Output directory for fetched sources. If absent, try the `OUT_DIR` environment variable,
+        /// then fall back to the current working directory. The given directory must exist.
+        #[arg(long, short = 'o', value_name = "PATH")]
+        out_dir: Option<PathBuf>,
 
-    #[arg(value_enum)]
-    action: Action,
+        /// Number of threads to spawn. Defaults to one per logical CPU.
+        #[arg(long, short = 't', value_name = "NUM-THREADS")]
+        threads: Option<u32>,
+    },
+    /// List the sources specified in the manifest without fetching them
+    List {
+        /// Output format
+        #[arg(long, short = 'f', value_enum, value_name = "FORMAT")]
+        format: Option<OutputFormat>,
+    },
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
-pub enum Action {
-    /// Fetch the sources specified in the manifest
-    Fetch,
-    /// List the sources specified in the manifest without fetching them
-    List,
+pub enum OutputFormat {
+    /// Output in JSON format
+    Json,
+    /// Output in TOML format
+    Toml,
 }
 
 #[derive(Debug)]
 pub struct ValidatedArgs {
     pub manifest_file: PathBuf,
-    pub out_dir: PathBuf,
-    pub threads: Option<u32>,
-    pub action: Action,
+    pub command: ValidatedCommand,
+}
+
+#[derive(Debug)]
+pub enum ValidatedCommand {
+    Fetch {
+        out_dir: PathBuf,
+        threads: Option<u32>,
+    },
+    List {
+        format: Option<OutputFormat>,
+    },
 }
 
 impl TryFrom<Args> for ValidatedArgs {
@@ -94,28 +115,36 @@ impl TryFrom<Args> for ValidatedArgs {
             }
         };
 
-        // If the output directory is not provided, try to use `OUT_DIR` and fall back to the current directory.
-        let out_dir = match args.out_dir {
-            Some(path) => path,
-            None => match std::env::var("OUT_DIR") {
-                Ok(s) => std::path::PathBuf::from(s),
-                Err(_) => std::env::current_dir()?,
-            },
-        };
+        let command = match args.command {
+            Command::Fetch { out_dir, threads } => {
+                // If the output directory is not provided, try to use `OUT_DIR` and fall back to the current directory.
+                let out_dir = match out_dir {
+                    Some(path) => path,
+                    None => match std::env::var("OUT_DIR") {
+                        Ok(s) => std::path::PathBuf::from(s),
+                        Err(_) => std::env::current_dir()?,
+                    },
+                };
 
-        // Validate that the output directory exists
-        if !out_dir.exists() {
-            return Err(AppError::ArgValidation(format!(
-                "output directory does not exist: {}",
-                out_dir.display()
-            )));
-        }
+                // Validate that the output directory exists
+                if !out_dir.exists() {
+                    return Err(AppError::ArgValidation(format!(
+                        "output directory does not exist: {}",
+                        out_dir.display()
+                    )));
+                }
+
+                ValidatedCommand::Fetch {
+                    out_dir: out_dir.canonicalize()?,
+                    threads,
+                }
+            }
+            Command::List { format } => ValidatedCommand::List { format },
+        };
 
         Ok(ValidatedArgs {
             manifest_file,
-            out_dir: out_dir.canonicalize()?,
-            threads: args.threads,
-            action: args.action,
+            command,
         })
     }
 }
