@@ -1,4 +1,4 @@
-use crate::{error::AppError, fetch::fetch_in_parallel_multiprogress_rayon};
+use crate::{error::AppError, fetch::parallel_fetch};
 
 mod args;
 mod error;
@@ -33,7 +33,7 @@ fn run() -> Result<(), error::AppError> {
         })?;
     let num_sources = sources.len();
 
-    let errors: Vec<_> = fetch_in_parallel_multiprogress_rayon(sources, &args.out_dir)
+    let errors: Vec<_> = parallel_fetch(sources, &args.out_dir)
         .into_iter()
         .filter_map(Result::err)
         .collect();

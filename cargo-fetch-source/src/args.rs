@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-use anyhow::{anyhow, bail};
 use clap::Parser;
 
 use crate::error::AppError;

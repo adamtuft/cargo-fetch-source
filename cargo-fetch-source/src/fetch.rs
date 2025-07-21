@@ -1,53 +1,25 @@
-use std::any::Any;
-
-use anyhow::Context;
-
 use fetch_source::{Artefact, Source, Sources};
 
 pub type FetchResult = Result<Artefact, anyhow::Error>;
 
 fn make_progress_spinner(
     m: &indicatif::MultiProgress,
-    prefix: Option<String>,
+    prefix: String,
 ) -> indicatif::ProgressBar {
     let pb = m.add(indicatif::ProgressBar::new_spinner());
     pb.set_style(indicatif::ProgressStyle::default_spinner());
     pb.enable_steady_tick(std::time::Duration::from_millis(120));
-    if let Some(prefix) = prefix {
-        pb.set_style(
-            indicatif::ProgressStyle::with_template(
-                "{prefix:.cyan.bold/blue.bold} {elapsed:.cyan.dim} {msg:.cyan/blue}",
-            )
-            .unwrap(),
-        );
-        pb.set_prefix(prefix);
-    } else {
-        pb.set_style(indicatif::ProgressStyle::with_template("{msg:.cyan/blue}").unwrap());
-    }
+    pb.set_style(
+        indicatif::ProgressStyle::with_template(
+            "{prefix:.cyan.bold/blue.bold} {elapsed:.cyan.dim} {msg:.cyan/blue}",
+        )
+        .unwrap(),
+    );
+    pb.set_prefix(prefix);
     pb
 }
 
-pub fn fetch_one_print_outcome<S: AsRef<str>>(
-    name: S,
-    source: Source,
-    out_dir: &std::path::Path,
-) -> FetchResult {
-    println!("🔄 Fetching {}...", name.as_ref());
-    let artefact = source
-        .fetch(name.as_ref(), out_dir)
-        .context(format!("Failed to fetch source '{}'", name.as_ref()))?;
-    match artefact {
-        Artefact::Git(ref repo) => {
-            println!("✅ 🔗 Cloned repository into {}", repo.local.display());
-        }
-        Artefact::Tar(ref tar) => {
-            println!("✅ 📦 Extracted {} into {}", tar.url, out_dir.display());
-        }
-    }
-    Ok(artefact)
-}
-
-pub fn fetch_one_progress_outcome<S: AsRef<str>>(
+fn fetch_one<S: AsRef<str>>(
     name: S,
     source: Source,
     out_dir: &std::path::Path,
@@ -76,60 +48,7 @@ pub fn fetch_one_progress_outcome<S: AsRef<str>>(
     Ok(result?)
 }
 
-pub fn fetch_serial(
-    mut artefacts: Vec<Artefact>,
-    name: String,
-    source: Source,
-    out_dir: &std::path::Path,
-) -> Result<Vec<Artefact>, anyhow::Error> {
-    let artefact = fetch_one_print_outcome(name, source, out_dir)?;
-    artefacts.push(artefact);
-    Ok(artefacts)
-}
-
-pub fn fetch_parallel(
-    mut handles: Vec<std::thread::JoinHandle<Result<Artefact, fetch_source::Error>>>,
-    name: String,
-    source: Source,
-    out_dir: &std::path::Path,
-) -> Vec<std::thread::JoinHandle<Result<Artefact, fetch_source::Error>>> {
-    let out_dir = out_dir.to_path_buf();
-    handles.push(std::thread::spawn(move || source.fetch(&name, &out_dir)));
-    handles
-}
-
-pub fn fetch_in_parallel_scope(
-    sources: Sources,
-    out_dir: &std::path::Path,
-) -> Vec<Result<FetchResult, Box<dyn Any + Send>>> {
-    std::thread::scope(move |scope| {
-        sources
-            .into_iter()
-            .map(|(n, s)| scope.spawn(move || fetch_one_print_outcome(n, s, out_dir)))
-            .map(|h| h.join())
-            .collect::<Vec<Result<FetchResult, _>>>()
-    })
-}
-
-pub fn fetch_in_parallel_scope_with_multiprogress(
-    sources: Sources,
-    out_dir: &std::path::Path,
-) -> Vec<Result<FetchResult, Box<dyn Any + Send>>> {
-    let mp = indicatif::MultiProgress::new();
-    let bars: Vec<_> = (0..sources.len())
-        .map(|_| make_progress_spinner(&mp, None))
-        .collect();
-    std::thread::scope(move |scope| {
-        let handles = sources
-            .into_iter()
-            .zip(bars)
-            .map(|((n, s), b)| scope.spawn(move || fetch_one_progress_outcome(n, s, out_dir, b)))
-            .collect::<Vec<_>>();
-        handles.into_iter().map(|h| h.join()).collect()
-    })
-}
-
-pub fn fetch_in_parallel_multiprogress_rayon(
+pub fn parallel_fetch(
     sources: Sources,
     out_dir: &std::path::Path,
 ) -> Vec<FetchResult> {
@@ -137,13 +56,13 @@ pub fn fetch_in_parallel_multiprogress_rayon(
     let count = sources.len();
     let mp = indicatif::MultiProgress::new();
     let ordered_bars = (0..count)
-        .map(|k| make_progress_spinner(&mp, Some(format!("[{}/{count}]", k + 1))))
+        .map(|k| make_progress_spinner(&mp, format!("[{}/{count}]", k + 1)))
         .collect::<Vec<_>>();
     ordered_bars
         .into_iter()
         .zip(sources)
         .collect::<Vec<_>>()
         .into_par_iter()
-        .map(|(bar, (n, s))| fetch_one_progress_outcome(n, s, out_dir, bar))
+        .map(|(bar, (n, s))| fetch_one(n, s, out_dir, bar))
         .collect::<Vec<_>>()
 }
