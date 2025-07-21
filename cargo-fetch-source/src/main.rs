@@ -7,7 +7,13 @@ mod fetch;
 fn main() -> std::process::ExitCode {
     match run() {
         Ok(()) => std::process::ExitCode::from(0),
-        Err(err) => err.into(),
+        Err(err) => {
+            match err {
+                AppError::Fetch(_) => {}
+                _ => eprintln!("{err}"),
+            }
+            err.into()
+        }
     }
 }
 
@@ -31,9 +37,16 @@ fn run() -> Result<(), error::AppError> {
             manifest: format!("{}", args.manifest_file.display()),
             err,
         })?;
-    let num_sources = sources.len();
 
-    let errors: Vec<_> = parallel_fetch(sources, &args.out_dir)
+    match args.action {
+        args::Action::Fetch => fetch(sources, &args.out_dir),
+        args::Action::List => list(sources, &args.out_dir),
+    }
+}
+
+fn fetch(sources: fetch_source::Sources, out_dir: &std::path::Path) -> Result<(), error::AppError> {
+    let num_sources = sources.len();
+    let errors: Vec<_> = parallel_fetch(sources, out_dir)
         .into_iter()
         .filter_map(Result::err)
         .collect();
@@ -69,4 +82,31 @@ fn run() -> Result<(), error::AppError> {
     } else {
         Err(AppError::Fetch(num_errors))
     }
+}
+
+fn list(sources: fetch_source::Sources, _: &std::path::Path) -> Result<(), error::AppError> {
+    // for (name, source) in sources {
+    //     println!("{name}:");
+    //     match source {
+    //         fetch_source::Source::Tar(tar) => {
+    //             println!("   upstream: {}", tar.upstream());
+    //         },
+    //         fetch_source::Source::Git(git) => {
+    //             println!("   upstream: {}", git.upstream());
+    //             if let Some(branch) = git.branch_name() {
+    //                 println!("  branch/tag:  {branch}");
+    //             } else if let Some(commit) = git.commit_sha() {
+    //                 println!("  commit:  {commit}");
+    //             }
+    //             println!("  recursive: {}", git.is_recursive());
+    //         },
+    //     }
+    // }
+    
+    // Use serde to serialise `sources` to TOML, then print it.
+    // SAFETY: unwrap here because we only accept values that were previously deserialised
+    let toml = toml::to_string(&sources).unwrap();
+    println!("{toml}");
+
+    Ok(())
 }

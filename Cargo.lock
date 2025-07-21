@@ -129,7 +129,9 @@ dependencies = [
  "fetch-source",
  "indicatif",
  "rayon",
+ "serde",
  "thiserror",
+ "toml",
 ]
 
 [[package]]

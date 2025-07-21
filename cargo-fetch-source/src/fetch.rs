@@ -2,10 +2,7 @@ use fetch_source::{Artefact, Source, Sources};
 
 pub type FetchResult = Result<Artefact, anyhow::Error>;
 
-fn make_progress_spinner(
-    m: &indicatif::MultiProgress,
-    prefix: String,
-) -> indicatif::ProgressBar {
+fn make_progress_spinner(m: &indicatif::MultiProgress, prefix: String) -> indicatif::ProgressBar {
     let pb = m.add(indicatif::ProgressBar::new_spinner());
     pb.set_style(indicatif::ProgressStyle::default_spinner());
     pb.enable_steady_tick(std::time::Duration::from_millis(120));
@@ -48,10 +45,7 @@ fn fetch_one<S: AsRef<str>>(
     Ok(result?)
 }
 
-pub fn parallel_fetch(
-    sources: Sources,
-    out_dir: &std::path::Path,
-) -> Vec<FetchResult> {
+pub fn parallel_fetch(sources: Sources, out_dir: &std::path::Path) -> Vec<FetchResult> {
     use rayon::prelude::*;
     let count = sources.len();
     let mp = indicatif::MultiProgress::new();

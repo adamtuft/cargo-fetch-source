@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -6,40 +8,36 @@ use crate::error::AppError;
 
 // Shamelessly borrowed from https://github.com/crate-ci/clap-cargo/blob/0378657ffdf2b67bcd6f1ab56e04a1322b92dd0e/src/style.rs
 // thanks to https://stackoverflow.com/a/79614957
-mod style {
-    #![allow(dead_code)]
-    use anstyle::AnsiColor;
-    use anstyle::Effects;
-    use anstyle::Style;
+use anstyle::AnsiColor;
+use anstyle::Effects;
+use anstyle::Style;
 
-    pub const NOP: Style = Style::new();
-    pub const HEADER: Style = AnsiColor::Green.on_default().effects(Effects::BOLD);
-    pub const USAGE: Style = AnsiColor::Green.on_default().effects(Effects::BOLD);
-    pub const LITERAL: Style = AnsiColor::Cyan.on_default().effects(Effects::BOLD);
-    pub const PLACEHOLDER: Style = AnsiColor::Cyan.on_default();
-    pub const ERROR: Style = AnsiColor::Red.on_default().effects(Effects::BOLD);
-    pub const WARN: Style = AnsiColor::Yellow.on_default().effects(Effects::BOLD);
-    pub const NOTE: Style = AnsiColor::Cyan.on_default().effects(Effects::BOLD);
-    pub const GOOD: Style = AnsiColor::Green.on_default().effects(Effects::BOLD);
-    pub const VALID: Style = AnsiColor::Cyan.on_default().effects(Effects::BOLD);
-    pub const INVALID: Style = AnsiColor::Yellow.on_default().effects(Effects::BOLD);
+const NOP: Style = Style::new();
+const HEADER: Style = AnsiColor::Green.on_default().effects(Effects::BOLD);
+const USAGE: Style = AnsiColor::Green.on_default().effects(Effects::BOLD);
+const LITERAL: Style = AnsiColor::Cyan.on_default().effects(Effects::BOLD);
+const PLACEHOLDER: Style = AnsiColor::Cyan.on_default();
+const ERROR: Style = AnsiColor::Red.on_default().effects(Effects::BOLD);
+const WARN: Style = AnsiColor::Yellow.on_default().effects(Effects::BOLD);
+const NOTE: Style = AnsiColor::Cyan.on_default().effects(Effects::BOLD);
+const GOOD: Style = AnsiColor::Green.on_default().effects(Effects::BOLD);
+const VALID: Style = AnsiColor::Cyan.on_default().effects(Effects::BOLD);
+const INVALID: Style = AnsiColor::Yellow.on_default().effects(Effects::BOLD);
 
-    pub const CLAP_STYLING: clap::builder::styling::Styles =
-        clap::builder::styling::Styles::styled()
-            .header(HEADER)
-            .usage(USAGE)
-            .literal(LITERAL)
-            .placeholder(PLACEHOLDER)
-            .error(ERROR)
-            .valid(VALID)
-            .invalid(INVALID);
-}
+const APP_STYLING: clap::builder::styling::Styles = clap::builder::styling::Styles::styled()
+    .header(HEADER)
+    .usage(USAGE)
+    .literal(LITERAL)
+    .placeholder(PLACEHOLDER)
+    .error(ERROR)
+    .valid(VALID)
+    .invalid(INVALID);
 
 #[derive(Debug, Parser)]
 #[command(name = "cargo-fetch-source")]
 #[command(about = "Fetch external source trees specified in Cargo.toml")]
 #[command(version, long_about = None)]
-#[command(styles = style::CLAP_STYLING)]
+#[command(styles = APP_STYLING)]
 #[command(term_width = 80)]
 struct Args {
     /// Path to the Cargo.toml file. If not given, search for the file in the current and parent
@@ -55,6 +53,17 @@ struct Args {
     /// Number of threads to spawn. Defaults to one per logical CPU.
     #[arg(long, short = 't', value_name = "NUM-THREADS")]
     threads: Option<u32>,
+
+    #[arg(value_enum)]
+    action: Action,
+}
+
+#[derive(Debug, Clone, clap::ValueEnum)]
+pub enum Action {
+    /// Fetch the sources specified in the manifest
+    Fetch,
+    /// List the sources specified in the manifest without fetching them
+    List,
 }
 
 #[derive(Debug)]
@@ -62,6 +71,7 @@ pub struct ValidatedArgs {
     pub manifest_file: PathBuf,
     pub out_dir: PathBuf,
     pub threads: Option<u32>,
+    pub action: Action,
 }
 
 impl TryFrom<Args> for ValidatedArgs {
@@ -105,6 +115,7 @@ impl TryFrom<Args> for ValidatedArgs {
             manifest_file,
             out_dir: out_dir.canonicalize()?,
             threads: args.threads,
+            action: args.action,
         })
     }
 }

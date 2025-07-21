@@ -1,6 +1,6 @@
 [package.metadata.fetch-source]
 otf2 = { tar = "https://zenodo.org/records/4682684/files/otf2-2.3.tar.gz" }
-dotfiles = { git = "git@github.com:adamtuft/dotfiles.git" }
+dotfiles = { git = "git@github.com:adamtuft/dotfiles.git", branch = "cosma" }
 foo = { git = "git@github.com:adamtuft/foobar.git" }
 ckernel-latest = { tar = "https://files.pythonhosted.org/packages/d0/94/44406756633bdb70d38c904f28c7139911cc0718ec2d1fbeaa9d65668f28/ckernel-0.5.3.tar.gz" }
 ckernel-0-5-2 = { tar = "https://files.pythonhosted.org/packages/28/4d/0ca4b59f899af846babf158e7f7c80b46b46dd253cdf438345530d7d00e5/ckernel-0.5.2.tar.gz" }
