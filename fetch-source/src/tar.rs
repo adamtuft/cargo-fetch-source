@@ -2,7 +2,7 @@
 
 use flate2::read::GzDecoder;
 use std::io::prelude::*;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tar::Archive;
 
 use super::error::Error;
@@ -16,7 +16,7 @@ pub type TarItems = std::collections::HashMap<std::path::PathBuf, Vec<std::path:
 #[derive(Debug)]
 pub struct TarArtefact {
     pub url: String,
-    pub items: TarItems,
+    pub path: std::path::PathBuf,
 }
 
 /// Represents a remote tar archive.
@@ -27,20 +27,25 @@ pub struct Tar {
 }
 
 impl Tar {
-    /// Download and extract the archive into `dir`.
-    pub fn fetch<P: AsRef<std::path::Path>>(self, name: &str, dir: P) -> Result<Artefact, Error> {
-        let bytes = reqwest::blocking::get(&self.url)?.bytes()?;
+
+    fn extract<P: AsRef<std::path::Path>>(self, bytes: bytes::Bytes, name: &str, dir: P) -> Result<Artefact, Error> {
         let archive = decompress(&bytes)?;
         let sub_path = std::path::PathBuf::from_iter(name.split("::"));
         let dir = dir.as_ref().join(&sub_path);
         if !dir.exists() {
             std::fs::create_dir_all(&dir)?;
         }
-        let items = extract_tar_archive(&archive, &dir)?;
+        extract_tar_archive(&archive, &dir)?;
         Ok(Artefact::Tar(TarArtefact {
             url: self.url,
-            items,
+            path: dir,
         }))
+    }
+
+    /// Download and extract the archive into `dir`.
+    pub fn fetch<P: AsRef<std::path::Path>>(self, name: &str, dir: P) -> Result<Artefact, Error> {
+        let bytes = reqwest::blocking::get(&self.url)?.bytes()?;
+        self.extract(bytes, name, dir)
     }
 
     /// Download and extract the archive into `dir`. Consumes inputs to move data into the async
@@ -48,17 +53,7 @@ impl Tar {
     #[cfg(feature = "async")]
     pub async fn fetch_async(self, _: &str, dir: PathBuf) -> Result<Artefact, Error> {
         let bytes = reqwest::get(&self.url).await?.bytes().await?;
-        let archive = decompress(&bytes)?;
-        let sub_path = std::path::PathBuf::from_iter(name.split("::"));
-        let dir = dir.as_ref().join(&sub_path);
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir)?;
-        }
-        let items = extract_tar_archive(&archive, &dir)?;
-        Ok(Artefact::Tar(TarArtefact {
-            url: self.url,
-            items,
-        }))
+        self.extract(bytes, name, dir)
     }
 
     /// The remote URL.
@@ -74,19 +69,8 @@ fn decompress<Data: AsRef<[u8]>>(input: Data) -> Result<Vec<u8>, std::io::Error>
     Ok(output)
 }
 
-/// Extract the first path component from the rest. Panics if `comps` doesn't have at least one
-/// component, because we expect to only receive valid paths from a tar archive.
-fn split_first_component(mut comps: std::path::Components<'_>) -> (PathBuf, PathBuf) {
-    let first = comps
-        .next()
-        .unwrap_or_else(|| panic!("There should be at least one path component"));
-    let first = PathBuf::from(first.as_os_str().to_string_lossy().to_string());
-    (first, comps.collect::<PathBuf>())
-}
-
 /// Extract files from a tar archive in memory. Return the extracted items.
-fn extract_tar_archive(archive: &[u8], out_dir: &Path) -> Result<TarItems, std::io::Error> {
-    let mut extracted_files: TarItems = Default::default();
+fn extract_tar_archive(archive: &[u8], out_dir: &Path) -> Result<(), std::io::Error> {
     for archive_entry in Archive::new(archive).entries()? {
         let mut archive_entry = archive_entry?;
         let header = archive_entry.header();
@@ -107,17 +91,9 @@ fn extract_tar_archive(archive: &[u8], out_dir: &Path) -> Result<TarItems, std::
             {
                 std::fs::create_dir_all(p)?;
             }
-            let (first, rest) = split_first_component(path_in_archive.components());
-            // Note the path to the extracted file
-            if !extracted_files.contains_key(&first) {
-                extracted_files.insert(first.clone(), Vec::new());
-            }
-            // SAFETY: can unwrap here as we just ensured this key exists.
-            let items = extracted_files.get_mut(&first).unwrap();
-            items.push(rest);
             let mut out_file = std::fs::File::create(&dest)?;
             std::io::copy(&mut archive_entry, &mut out_file)?;
         }
     }
-    Ok(extracted_files)
+    Ok(())
 }
