@@ -7,15 +7,15 @@ mod fetch;
 use args::OutputFormat;
 
 fn main() -> std::process::ExitCode {
-    match run() {
-        Ok(()) => std::process::ExitCode::from(0),
-        Err(err) => {
-            match err {
-                AppError::Fetch(_) => {}
-                _ => eprintln!("{err}"),
-            }
-            err.into()
+    if let Err(err) = run() {
+        match err {
+            // Fetch errors reported inside run()
+            AppError::Fetch(_) => {}
+            _ => eprintln!("{err}"),
         }
+        err.into()
+    } else {
+        std::process::ExitCode::from(0)
     }
 }
 
@@ -37,11 +37,15 @@ fn run() -> Result<(), error::AppError> {
     match args.command {
         args::ValidatedCommand::Fetch { out_dir, threads } => {
             if let Some(threads) = threads {
+                // SAFETY: only called in a serial region before any other threads exist.
                 unsafe { std::env::set_var("RAYON_NUM_THREADS", format!("{threads}")) };
             }
             fetch(sources, &out_dir)
-        },
-        args::ValidatedCommand::List { format } => list(sources, format),
+        }
+        args::ValidatedCommand::List { format } => {
+            list(sources, format);
+            Ok(())
+        }
     }
 }
 
@@ -85,12 +89,12 @@ fn fetch(sources: fetch_source::Sources, out_dir: &std::path::Path) -> Result<()
     }
 }
 
-fn list(sources: fetch_source::Sources, format: Option<OutputFormat>) -> Result<(), error::AppError> {
+fn list(sources: fetch_source::Sources, format: Option<OutputFormat>) {
     match format {
         Some(OutputFormat::Toml) => {
             // SAFETY: unwrap here because we only accept values that were previously deserialised
             println!("{}", toml::to_string(&sources).unwrap());
-        },
+        }
         Some(OutputFormat::Json) => {
             // SAFETY: unwrap here because we only accept values that were previously deserialised
             println!("{}", serde_json::to_string_pretty(&sources).unwrap());
@@ -101,7 +105,7 @@ fn list(sources: fetch_source::Sources, format: Option<OutputFormat>) -> Result<
                 match source {
                     fetch_source::Source::Tar(tar) => {
                         println!("   upstream: {}", tar.upstream());
-                    },
+                    }
                     fetch_source::Source::Git(git) => {
                         println!("   upstream: {}", git.upstream());
                         if let Some(branch) = git.branch_name() {
@@ -110,10 +114,9 @@ fn list(sources: fetch_source::Sources, format: Option<OutputFormat>) -> Result<
                             println!("  commit:  {commit}");
                         }
                         println!("  recursive: {}", git.is_recursive());
-                    },
+                    }
                 }
             }
         }
     }
-    Ok(())
 }

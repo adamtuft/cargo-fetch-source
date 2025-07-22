@@ -84,7 +84,6 @@
 
 mod error;
 pub mod git;
-mod helper;
 pub mod source;
 #[cfg(feature = "tar")]
 pub mod tar;
@@ -94,11 +93,28 @@ pub use crate::error::Error;
 #[doc(inline)]
 pub use crate::source::*;
 
-pub mod fetch {
-    #[doc(inline)]
-    pub use crate::helper::serial::fetch as one;
-    pub use crate::helper::serial::fetch_all as all;
-    
-    #[cfg(feature = "rayon")]
-    pub use crate::helper::parallel::fetch_all_par as all_par;
+/// Fetch all sources serially
+pub fn fetch_all<P: AsRef<std::path::Path>>(
+    sources: Sources,
+    out_dir: P,
+) -> Vec<Result<Artefact, crate::Error>> {
+    sources
+        .into_iter()
+        .map(|(name, source)| source.fetch(&name, &out_dir))
+        .collect()
+}
+
+#[cfg(feature = "rayon")]
+use rayon::prelude::*;
+
+#[cfg(feature = "rayon")]
+/// Fetch all sources in parallel
+pub fn fetch_all_par<P: AsRef<std::path::Path> + Sync>(
+    sources: Sources,
+    out_dir: P,
+) -> Vec<Result<Artefact, crate::Error>> {
+    sources
+        .into_par_iter()
+        .map(|(name, source)| source.fetch(&name, out_dir.as_ref()))
+        .collect::<Vec<_>>()
 }
