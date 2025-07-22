@@ -76,6 +76,7 @@ With `rayon`, it's trivial to fetch sources in parallel:
 # use fetch_source::Error;
 use rayon::prelude::*;
 use std::path::PathBuf;
+
 # fn main() -> Result<(), Error> {
 let cargo_toml = r#"
 [package.metadata.fetch-source]
@@ -83,11 +84,10 @@ syn = { git = "https://github.com/dtolnay/syn.git" }
 syn-old = { tar = "https://github.com/dtolnay/syn/archive/refs/tags/1.0.0.tar.gz" }
 "#;
 let out_dir = PathBuf::from(std::env::temp_dir());
-for err in fetch_source::try_parse_toml(cargo_toml)?.into_par_iter()
+fetch_source::try_parse_toml(cargo_toml)?.into_par_iter()
     .map(|(name, source)| source.fetch(&name, &out_dir))
-    .filter_map(Result::err) {
-    eprintln!("{err}");
-}
+    .filter_map(Result::err)
+    .for_each(|err| eprintln!("{err}"));
 # Ok(())
 # }
 ```
