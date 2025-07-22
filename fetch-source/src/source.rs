@@ -45,6 +45,36 @@ pub enum Artefact {
     Git(GitArtefact),
 }
 
+impl Artefact {
+    /// Get the path to the artefact
+    pub fn path(&self) -> &std::path::Path {
+        match self {
+            #[cfg(feature = "tar")]
+            Artefact::Tar(tar) => &tar.path,
+            Artefact::Git(git) => &git.local,
+        }
+    }
+
+    /// Get the tar variant, if this is a tar artefact.
+    #[cfg(feature = "tar")]
+    pub fn as_tar(&self) -> Option<&TarArtefact> {
+        if let Artefact::Tar(tar) = self {
+            Some(tar)
+        } else {
+            None
+        }
+    }
+
+    /// Get the git variant, if this is a git artefact.
+    pub fn as_git(&self) -> Option<&GitArtefact> {
+        if let Artefact::Git(git) = self {
+            Some(git)
+        } else {
+            None
+        }
+    }
+}
+
 /// Allowed source variants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum SourceVariant {
