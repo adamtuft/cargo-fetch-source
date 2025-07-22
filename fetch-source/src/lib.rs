@@ -31,7 +31,6 @@
 //! Parse external sources declared in your `Cargo.toml` like so:
 //!
 //! ```rust
-//!
 //! // Imagine this is in your Cargo.toml:
 //! let cargo_toml = r#"
 //! [package.metadata.fetch-source]
@@ -85,6 +84,7 @@ let cargo_toml = r#"
 "syn::latest" = { git = "https://github.com/dtolnay/syn.git" }
 "syn::1.0.0" = { tar = "https://github.com/dtolnay/syn/archive/refs/tags/1.0.0.tar.gz" }
 "#;
+
 let out_dir = PathBuf::from(std::env::temp_dir());
 fetch_source::try_parse_toml(cargo_toml)?.into_par_iter()
     .map(|(name, source)| source.fetch(&name, &out_dir))
