@@ -8,21 +8,21 @@ use crate::error::AppError;
 
 // Shamelessly borrowed from https://github.com/crate-ci/clap-cargo/blob/0378657ffdf2b67bcd6f1ab56e04a1322b92dd0e/src/style.rs
 // thanks to https://stackoverflow.com/a/79614957
-use anstyle::AnsiColor;
+use anstyle::AnsiColor::*;
 use anstyle::Effects;
 use anstyle::Style;
 
 const NOP: Style = Style::new();
-const HEADER: Style = AnsiColor::Green.on_default().effects(Effects::BOLD);
-const USAGE: Style = AnsiColor::Green.on_default().effects(Effects::BOLD);
-const LITERAL: Style = AnsiColor::Cyan.on_default().effects(Effects::BOLD);
-const PLACEHOLDER: Style = AnsiColor::Cyan.on_default();
-const ERROR: Style = AnsiColor::Red.on_default().effects(Effects::BOLD);
-const WARN: Style = AnsiColor::Yellow.on_default().effects(Effects::BOLD);
-const NOTE: Style = AnsiColor::Cyan.on_default().effects(Effects::BOLD);
-const GOOD: Style = AnsiColor::Green.on_default().effects(Effects::BOLD);
-const VALID: Style = AnsiColor::Cyan.on_default().effects(Effects::BOLD);
-const INVALID: Style = AnsiColor::Yellow.on_default().effects(Effects::BOLD);
+const HEADER: Style = Green.on_default().effects(Effects::BOLD);
+const USAGE: Style = Green.on_default().effects(Effects::BOLD);
+const LITERAL: Style = Cyan.on_default().effects(Effects::BOLD);
+const PLACEHOLDER: Style = Cyan.on_default();
+const ERROR: Style = Red.on_default().effects(Effects::BOLD);
+const WARN: Style = Yellow.on_default().effects(Effects::BOLD);
+const NOTE: Style = Cyan.on_default().effects(Effects::BOLD);
+const GOOD: Style = Green.on_default().effects(Effects::BOLD);
+const VALID: Style = Cyan.on_default().effects(Effects::BOLD);
+const INVALID: Style = Yellow.on_default().effects(Effects::BOLD);
 
 const APP_STYLING: clap::builder::styling::Styles = clap::builder::styling::Styles::styled()
     .header(HEADER)

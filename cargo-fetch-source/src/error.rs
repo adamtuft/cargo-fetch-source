@@ -20,14 +20,14 @@ pub enum AppError {
         #[source]
         err: fetch_source::SourceParseError,
     },
-    #[error("Failed to fetch {0} source(s)")]
-    Fetch(usize),
+    #[error("Failed to fetch source(s)")]
+    Fetch,
 }
 
 impl From<AppError> for ExitCode {
     fn from(error: AppError) -> Self {
         ExitCode::from(match error {
-            AppError::Fetch(_) => 1,
+            AppError::Fetch => 1,
             AppError::ArgValidation(_) => 2,
             AppError::IO(_) => 3,
             AppError::ManifestRead {

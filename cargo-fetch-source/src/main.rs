@@ -9,8 +9,8 @@ use args::OutputFormat;
 fn main() -> std::process::ExitCode {
     if let Err(err) = run() {
         match err {
-            // Fetch errors reported inside run()
-            AppError::Fetch(_) => {}
+            // Fetch errors are reported inside run(), so just convert error to exit code
+            AppError::Fetch => {}
             _ => eprintln!("{err}"),
         }
         err.into()
@@ -40,7 +40,12 @@ fn run() -> Result<(), error::AppError> {
                 // SAFETY: only called in a serial region before any other threads exist.
                 unsafe { std::env::set_var("RAYON_NUM_THREADS", format!("{threads}")) };
             }
-            fetch(sources, &out_dir)
+            if fetch(sources, &out_dir) {
+                Ok(())
+            } else {
+                // `fetch` returns false on failure, so report an error to produce exit code
+                Err(AppError::Fetch)
+            }
         }
         args::ValidatedCommand::List { format } => {
             list(sources, format);
@@ -49,7 +54,9 @@ fn run() -> Result<(), error::AppError> {
     }
 }
 
-fn fetch(sources: fetch_source::Sources, out_dir: &std::path::Path) -> Result<(), error::AppError> {
+// Fetch all sources and report outcome with progress bars. Report any errors fetching sources.
+// All sub-errors are swallowed and reported here so just bool to indicate success/failure.
+fn fetch(sources: fetch_source::Sources, out_dir: &std::path::Path) -> bool {
     let num_sources = sources.len();
     let errors: Vec<_> = parallel_fetch(sources, out_dir)
         .into_iter()
@@ -82,13 +89,10 @@ fn fetch(sources: fetch_source::Sources, out_dir: &std::path::Path) -> Result<()
         println!("🎉 Successfully fetched {num_success} source(s)!");
     }
 
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(AppError::Fetch(num_errors))
-    }
+    num_errors == 0
 }
 
+// List all sources in the chosen format
 fn list(sources: fetch_source::Sources, format: Option<OutputFormat>) {
     match format {
         Some(OutputFormat::Toml) => {
