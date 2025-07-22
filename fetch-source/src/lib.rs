@@ -127,6 +127,11 @@ pub use crate::error::Error;
 #[doc(inline)]
 pub use crate::source::*;
 
+/// Convenience function to load sources from `Cargo.toml` in the current directory
+pub fn load_sources() -> Result<Sources, Error> {
+    Ok(try_parse_toml(&std::fs::read_to_string("Cargo.toml")?)?)
+}
+
 /// Convenience function to fetch all sources serially
 pub fn fetch_all<P: AsRef<std::path::Path>>(
     sources: Sources,
