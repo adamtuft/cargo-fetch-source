@@ -3,7 +3,6 @@
 use flate2::read::GzDecoder;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
-use std::{fs, io};
 use tar::Archive;
 
 use super::error::Error;
@@ -29,10 +28,15 @@ pub struct Tar {
 
 impl Tar {
     /// Download and extract the archive into `dir`.
-    pub fn fetch<P: AsRef<std::path::Path>>(self, _: &str, dir: P) -> Result<Artefact, Error> {
+    pub fn fetch<P: AsRef<std::path::Path>>(self, name: &str, dir: P) -> Result<Artefact, Error> {
         let bytes = reqwest::blocking::get(&self.url)?.bytes()?;
         let archive = decompress(&bytes)?;
-        let items = extract_tar_archive(&archive, dir.as_ref())?;
+        let sub_path = std::path::PathBuf::from_iter(name.split("::"));
+        let dir = dir.as_ref().join(&sub_path);
+        if !dir.exists() {
+            std::fs::create_dir_all(&dir)?;
+        }
+        let items = extract_tar_archive(&archive, &dir)?;
         Ok(Artefact::Tar(TarArtefact {
             url: self.url,
             items,
@@ -45,6 +49,11 @@ impl Tar {
     pub async fn fetch_async(self, _: &str, dir: PathBuf) -> Result<Artefact, Error> {
         let bytes = reqwest::get(&self.url).await?.bytes().await?;
         let archive = decompress(&bytes)?;
+        let sub_path = std::path::PathBuf::from_iter(name.split("::"));
+        let dir = dir.as_ref().join(&sub_path);
+        if !dir.exists() {
+            std::fs::create_dir_all(&dir)?;
+        }
         let items = extract_tar_archive(&archive, &dir)?;
         Ok(Artefact::Tar(TarArtefact {
             url: self.url,
@@ -58,7 +67,7 @@ impl Tar {
     }
 }
 
-fn decompress<Data: AsRef<[u8]>>(input: Data) -> Result<Vec<u8>, io::Error> {
+fn decompress<Data: AsRef<[u8]>>(input: Data) -> Result<Vec<u8>, std::io::Error> {
     let mut decoder = GzDecoder::new(input.as_ref());
     let mut output = Vec::new();
     decoder.read_to_end(&mut output)?;
@@ -76,7 +85,7 @@ fn split_first_component(mut comps: std::path::Components<'_>) -> (PathBuf, Path
 }
 
 /// Extract files from a tar archive in memory. Return the extracted items.
-fn extract_tar_archive(archive: &[u8], out_dir: &Path) -> Result<TarItems, io::Error> {
+fn extract_tar_archive(archive: &[u8], out_dir: &Path) -> Result<TarItems, std::io::Error> {
     let mut extracted_files: TarItems = Default::default();
     for archive_entry in Archive::new(archive).entries()? {
         let mut archive_entry = archive_entry?;
@@ -101,7 +110,7 @@ fn extract_tar_archive(archive: &[u8], out_dir: &Path) -> Result<TarItems, io::E
             // SAFETY: can unwrap here as we just ensured this key exists.
             let items = extracted_files.get_mut(&first).unwrap();
             items.push(rest);
-            let mut out_file = fs::File::create(&dest)?;
+            let mut out_file = std::fs::File::create(&dest)?;
             std::io::copy(&mut archive_entry, &mut out_file)?;
         }
     }

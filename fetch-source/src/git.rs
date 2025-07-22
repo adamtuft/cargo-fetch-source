@@ -69,7 +69,11 @@ impl Git {
 
     /// Clone the repository into `dir`.
     pub fn fetch<P: AsRef<std::path::Path>>(self, name: &str, dir: P) -> Result<Artefact, Error> {
-        let local = dir.as_ref().join(name);
+        let sub_path = std::path::PathBuf::from_iter(name.split("::"));
+        let local = dir.as_ref().join(&sub_path);
+        if !local.exists() {
+            std::fs::create_dir_all(&dir)?;
+        }
         let mut proc = self.clone_repo_subprocess(&local).spawn()?;
         let status = proc.wait()?;
         if status.success() {
@@ -84,9 +88,9 @@ impl Git {
             }
             let mut command = "git clone ".to_string();
             if let Some(branch) = self.branch_name() {
-                command.push_str(&format!("--branch {branch}"));
+                command.push_str(&format!("--branch {branch} "));
             } else if let Some(commit_sha) = self.commit_sha() {
-                command.push_str(&format!("--revision {commit_sha}"));
+                command.push_str(&format!("--revision {commit_sha} "));
             }
             if self.spec.recursive {
                 command.push_str("--recurse-submodules --shallow-submodules");
