@@ -55,8 +55,8 @@
 //! # fn main() -> Result<(), Error> {
 //! let cargo_toml = r#"
 //! [package.metadata.fetch-source]
-//! syn = { git = "https://github.com/dtolnay/syn.git" }
-//! syn-old = { tar = "https://github.com/dtolnay/syn/archive/refs/tags/1.0.0.tar.gz" }
+//! "syn::latest" = { git = "https://github.com/dtolnay/syn.git" }
+//! "syn::1.0.0" = { tar = "https://github.com/dtolnay/syn/archive/refs/tags/1.0.0.tar.gz" }
 //! "#;
 //!
 //! let out_dir = PathBuf::from(std::env::temp_dir());
@@ -69,7 +69,9 @@
 //! # }
 //! ```
 //!
-#![cfg_attr(feature = "rayon", doc = r##"
+#![cfg_attr(
+    feature = "rayon",
+    doc = r##"
 With `rayon`, it's trivial to fetch sources in parallel:
 
 ```rust
@@ -80,8 +82,8 @@ use std::path::PathBuf;
 # fn main() -> Result<(), Error> {
 let cargo_toml = r#"
 [package.metadata.fetch-source]
-syn = { git = "https://github.com/dtolnay/syn.git" }
-syn-old = { tar = "https://github.com/dtolnay/syn/archive/refs/tags/1.0.0.tar.gz" }
+"syn::latest" = { git = "https://github.com/dtolnay/syn.git" }
+"syn::1.0.0" = { tar = "https://github.com/dtolnay/syn/archive/refs/tags/1.0.0.tar.gz" }
 "#;
 let out_dir = PathBuf::from(std::env::temp_dir());
 fetch_source::try_parse_toml(cargo_toml)?.into_par_iter()
@@ -91,11 +93,17 @@ fetch_source::try_parse_toml(cargo_toml)?.into_par_iter()
 # Ok(())
 # }
 ```
-"##)]
+"##
+)]
 //!
-//! # Structure of the `package.metadata.fetch-source` table
+//! # Declaring sources
 //!
-//! Each value in this table must be a table which identifies the remote source it represents:
+//! The keys in the `package.metadata.fetch-source` table name a remote source. They can include
+//! any path character and zero or more `::` sub-name separators. Each `::`-separated component of a
+//! name maps to a subdirectory of the output directory.
+//!
+//! Each value in the `package.metadata.fetch-source` table must be a table which identifies the
+//! remote source it represents:
 //!
 //! **Tar archives**
 //! - The `tar` key gives the URL of the archive.

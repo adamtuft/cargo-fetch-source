@@ -97,6 +97,11 @@ fn extract_tar_archive(archive: &[u8], out_dir: &Path) -> Result<TarItems, std::
         if header.entry_type().is_dir() {
             std::fs::create_dir_all(&dest)?;
         } else {
+            if let Some(name) = dest.iter().next_back()
+                && name == "pax_global_header"
+            {
+                continue;
+            }
             if let Some(p) = dest.parent()
                 && !p.exists()
             {
