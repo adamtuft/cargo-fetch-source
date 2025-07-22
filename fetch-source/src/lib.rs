@@ -20,16 +20,17 @@
 //!
 //! - `tar`: Download and extract `.tar.gz` archives. This is an optional feature because it uses the
 //!   [`reqwest`] crate which brings quite a few more dependencies.
+//! - `rayon`: Fetch sources in parallel with [`rayon`].
 //! - `async`: Enable fetching `tar` sources asynchronously.
 //!
 //! [`reqwest`]: https://crates.io/crates/reqwest
+//! [`rayon`]: https://crates.io/crates/rayon
 //!
 //! # Usage
 //!
 //! Parse external sources declared in your `Cargo.toml` like so:
 //!
 //! ```rust
-//! use fetch_source::{Sources, Parse};
 //!
 //! // Imagine this is in your Cargo.toml:
 //! let cargo_toml = r#"
@@ -39,7 +40,7 @@
 //! my-data = { tar = "https://example.com/data.tar.gz" }
 //! "#;
 //!
-//! for (name, source) in Sources::try_parse_toml(cargo_toml)? {
+//! for (name, source) in fetch_source::try_parse_toml(cargo_toml)? {
 //!     println!("{name}: {source}");
 //! }
 //! # Ok::<(), Box<dyn std::error::Error>>(())
@@ -49,7 +50,6 @@
 //!
 //! ```rust
 //! # use fetch_source::Error;
-//! use fetch_source::{Sources, Parse};
 //! use std::path::PathBuf;
 //!
 //! # fn main() -> Result<(), Error> {
@@ -59,13 +59,39 @@
 //! syn-old = { tar = "https://github.com/dtolnay/syn/archive/refs/tags/1.0.0.tar.gz" }
 //! "#;
 //!
-//! for (name, source) in Sources::try_parse_toml(cargo_toml)? {
-//!     let output_dir = PathBuf::from(std::env::temp_dir());
-//!     source.fetch(&name, output_dir)?;
+//! let out_dir = PathBuf::from(std::env::temp_dir());
+//! for err in fetch_source::try_parse_toml(cargo_toml)?.into_iter()
+//!     .map(|(name, source)| source.fetch(&name, &out_dir))
+//!     .filter_map(Result::err) {
+//!     eprintln!("{err}");
 //! }
 //! # Ok(())
 //! # }
 //! ```
+//!
+#![cfg_attr(feature = "rayon", doc = r##"
+With `rayon`, it's trivial to fetch sources in parallel:
+
+```rust
+# use fetch_source::Error;
+use rayon::prelude::*;
+use std::path::PathBuf;
+# fn main() -> Result<(), Error> {
+let cargo_toml = r#"
+[package.metadata.fetch-source]
+syn = { git = "https://github.com/dtolnay/syn.git" }
+syn-old = { tar = "https://github.com/dtolnay/syn/archive/refs/tags/1.0.0.tar.gz" }
+"#;
+let out_dir = PathBuf::from(std::env::temp_dir());
+for err in fetch_source::try_parse_toml(cargo_toml)?.into_par_iter()
+    .map(|(name, source)| source.fetch(&name, &out_dir))
+    .filter_map(Result::err) {
+    eprintln!("{err}");
+}
+# Ok(())
+# }
+```
+"##)]
 //!
 //! # Structure of the `package.metadata.fetch-source` table
 //!
@@ -93,7 +119,7 @@ pub use crate::error::Error;
 #[doc(inline)]
 pub use crate::source::*;
 
-/// Fetch all sources serially
+/// Convenience function to fetch all sources serially
 pub fn fetch_all<P: AsRef<std::path::Path>>(
     sources: Sources,
     out_dir: P,
@@ -108,7 +134,7 @@ pub fn fetch_all<P: AsRef<std::path::Path>>(
 use rayon::prelude::*;
 
 #[cfg(feature = "rayon")]
-/// Fetch all sources in parallel
+/// Convenience function to fetch all sources in parallel
 pub fn fetch_all_par<P: AsRef<std::path::Path> + Sync>(
     sources: Sources,
     out_dir: P,
