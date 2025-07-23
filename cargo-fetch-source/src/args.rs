@@ -79,7 +79,7 @@ enum Command {
         format: Option<OutputFormat>,
         /// Cache directory to list.
         #[arg(long = "cache", short = 'c', value_name = "PATH")]
-        cache_dir_arg: Option<PathBuf>,
+        cache_dir: Option<PathBuf>,
     },
 }
 
@@ -114,6 +114,16 @@ pub enum ValidatedCommand {
 }
 
 impl ValidatedArgs {
+    fn detect_out_dir(arg: Option<PathBuf>) -> Result<PathBuf, AppError> {
+        Ok(match arg {
+            Some(path) => path,
+            None => match std::env::var("OUT_DIR") {
+                Ok(s) => std::path::PathBuf::from(s),
+                Err(_) => std::env::current_dir()?,
+            },
+        })
+    }
+
     fn detect_manifest_file(arg: Option<PathBuf>) -> Result<PathBuf, AppError> {
         match arg {
             Some(path) => Ok(path),
@@ -133,28 +143,36 @@ impl ValidatedArgs {
             }
         }
     }
+
+    fn detect_cache_dir(arg: Option<PathBuf>) -> Result<PathBuf, AppError> {
+        match arg {
+            Some(dir) => Ok(dir),
+            None => match std::env::var_os("CARGO_FETCH_SOURCE_CACHE") {
+                Some(dir) => Ok(PathBuf::from(dir)),
+                None => {
+                    let project_dirs = directories::ProjectDirs::from("", "", "cargo-fetch-source")
+                        .ok_or(AppError::ArgValidation(
+                            "could not determine cache directory".to_string(),
+                        ))?;
+                    Ok(project_dirs.cache_dir().to_path_buf())
+                }
+            },
+        }
+    }
 }
 
-impl TryFrom<Args> for ValidatedArgs {
+impl TryFrom<Command> for ValidatedCommand {
     type Error = AppError;
 
-    fn try_from(args: Args) -> Result<Self, Self::Error> {
-        // If the manifest path is not provided, search for it in the directory hierarchy.
-
-        let command = match args.command {
+    fn try_from(command: Command) -> Result<Self, Self::Error> {
+        match command {
             Command::Fetch {
                 manifest_file,
                 out_dir,
                 threads,
             } => {
                 // If the output directory is not provided, try to use `OUT_DIR` and fall back to the current directory.
-                let out_dir = match out_dir {
-                    Some(path) => path,
-                    None => match std::env::var("OUT_DIR") {
-                        Ok(s) => std::path::PathBuf::from(s),
-                        Err(_) => std::env::current_dir()?,
-                    },
-                };
+                let out_dir = ValidatedArgs::detect_out_dir(out_dir)?;
 
                 // Validate that the output directory exists
                 if !out_dir.exists() {
@@ -164,43 +182,27 @@ impl TryFrom<Args> for ValidatedArgs {
                     )));
                 }
 
-                ValidatedCommand::Fetch {
+                Ok(ValidatedCommand::Fetch {
                     manifest_file: ValidatedArgs::detect_manifest_file(manifest_file)?,
                     out_dir: out_dir.canonicalize()?,
                     threads,
-                }
+                })
             }
             Command::List {
                 manifest_file,
                 format,
-            } => ValidatedCommand::List {
+            } => Ok(ValidatedCommand::List {
                 manifest_file: ValidatedArgs::detect_manifest_file(manifest_file)?,
                 format,
-            },
+            }),
             Command::Cached {
                 format,
-                cache_dir_arg,
-            } => {
-                let cache_dir = match cache_dir_arg {
-                    Some(dir) => dir,
-                    None => {
-                        match std::env::var_os("CARGO_FETCH_SOURCE_CACHE") {
-                            Some(dir) => PathBuf::from(dir),
-                            None => {
-                                let project_dirs = directories::ProjectDirs::from("", "", "cargo-fetch-source")
-                                    .ok_or(AppError::ArgValidation(
-                                        "could not determine cache directory".to_string(),
-                                    ))?;
-                                project_dirs.cache_dir().to_path_buf()
-                            }
-                        }
-                    }
-                };
-                ValidatedCommand::Cached { format, cache_dir }
-            }
-        };
-
-        Ok(ValidatedArgs { command })
+                cache_dir: cache_dir_arg,
+            } => Ok(ValidatedCommand::Cached {
+                format,
+                cache_dir: ValidatedArgs::detect_cache_dir(cache_dir_arg)?,
+            }),
+        }
     }
 }
 
@@ -212,5 +214,7 @@ pub fn parse() -> Result<ValidatedArgs, AppError> {
     } else {
         Args::parse_from(&raw_args)
     };
-    ValidatedArgs::try_from(args)
+    Ok(ValidatedArgs {
+        command: ValidatedCommand::try_from(args.command)?,
+    })
 }

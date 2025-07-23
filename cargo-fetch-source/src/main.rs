@@ -64,7 +64,7 @@ fn run() -> Result<(), error::AppError> {
             format: _,
             ref cache_dir,
         } => {
-            // println!("Using cache directory: {}", cache_dir.display());
+            println!("Using cache directory: {}", cache_dir.display());
             println!("{args:#?}");
             Ok(())
         }
