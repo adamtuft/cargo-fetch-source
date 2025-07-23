@@ -5,6 +5,7 @@ mod error;
 mod fetch;
 
 use args::OutputFormat;
+use fetch_source::Source;
 
 fn main() -> std::process::ExitCode {
     if let Err(err) = run() {
@@ -19,36 +20,52 @@ fn main() -> std::process::ExitCode {
     }
 }
 
+fn sources(manifest_file: &std::path::Path) -> Result<fetch_source::Sources, error::AppError> {
+    let document =
+        std::fs::read_to_string(manifest_file).map_err(|err| AppError::ManifestRead {
+            manifest: format!("{}", manifest_file.display()),
+            err,
+        })?;
+
+    fetch_source::try_parse_toml(&document).map_err(|err| AppError::ManifestParse {
+        manifest: format!("{}", manifest_file.display()),
+        err,
+    })
+}
+
 fn run() -> Result<(), error::AppError> {
     let args = args::parse()?;
 
-    let document =
-        std::fs::read_to_string(&args.manifest_file).map_err(|err| AppError::ManifestRead {
-            manifest: format!("{}", args.manifest_file.display()),
-            err,
-        })?;
-
-    let sources =
-        fetch_source::try_parse_toml(&document).map_err(|err| AppError::ManifestParse {
-            manifest: format!("{}", args.manifest_file.display()),
-            err,
-        })?;
-
     match args.command {
-        args::ValidatedCommand::Fetch { out_dir, threads } => {
+        args::ValidatedCommand::Fetch {
+            out_dir,
+            threads,
+            manifest_file,
+        } => {
             if let Some(threads) = threads {
                 // SAFETY: only called in a serial region before any other threads exist.
                 unsafe { std::env::set_var("RAYON_NUM_THREADS", format!("{threads}")) };
             }
-            if fetch(sources, &out_dir) {
+            if fetch(sources(&manifest_file)?, &out_dir) {
                 Ok(())
             } else {
                 // `fetch` returns false on failure, so report an error to produce exit code
                 Err(AppError::Fetch)
             }
         }
-        args::ValidatedCommand::List { format } => {
-            list(sources, format);
+        args::ValidatedCommand::List {
+            format,
+            manifest_file,
+        } => {
+            list(sources(&manifest_file)?, format);
+            Ok(())
+        }
+        args::ValidatedCommand::Cached {
+            format: _,
+            ref cache_dir,
+        } => {
+            // println!("Using cache directory: {}", cache_dir.display());
+            println!("{args:#?}");
             Ok(())
         }
     }

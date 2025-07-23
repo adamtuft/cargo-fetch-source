@@ -40,11 +40,6 @@ const APP_STYLING: clap::builder::styling::Styles = clap::builder::styling::Styl
 #[command(styles = APP_STYLING)]
 #[command(term_width = 80)]
 struct Args {
-    /// Path to the Cargo.toml file. If not given, search for the file in the current and parent
-    /// directories.
-    #[arg(long, short = 'm', value_name = "PATH", global = true)]
-    manifest_file: Option<PathBuf>,
-
     #[command(subcommand)]
     command: Command,
 }
@@ -53,6 +48,10 @@ struct Args {
 enum Command {
     /// Fetch the sources specified in the manifest
     Fetch {
+        /// Path to the Cargo.toml file. If not given, search for the file in the current and parent
+        /// directories.
+        #[arg(long, short = 'm', value_name = "PATH", global = true)]
+        manifest_file: Option<PathBuf>,
         /// Output directory for fetched sources. If absent, try the `OUT_DIR` environment variable,
         /// then fall back to the current working directory. The given directory must exist.
         #[arg(long, short = 'o', value_name = "PATH")]
@@ -64,9 +63,23 @@ enum Command {
     },
     /// List the sources specified in the manifest without fetching them
     List {
+        /// Path to the Cargo.toml file. If not given, search for the file in the current and parent
+        /// directories.
+        #[arg(long, short = 'm', value_name = "PATH", global = true)]
+        manifest_file: Option<PathBuf>,
         /// Output format
         #[arg(long, short = 'f', value_enum, value_name = "FORMAT")]
         format: Option<OutputFormat>,
+    },
+    /// List the cached sources. Defaults to `CARGO_FETCH_SOURCE_CACHE` environment variable
+    /// then `~/.cache/cargo-fetch-source`
+    Cached {
+        /// Output format
+        #[arg(long, short = 'f', value_enum, value_name = "FORMAT")]
+        format: Option<OutputFormat>,
+        /// Cache directory to list.
+        #[arg(long = "cache", short = 'c', value_name = "PATH")]
+        cache_dir_arg: Option<PathBuf>,
     },
 }
 
@@ -80,19 +93,46 @@ pub enum OutputFormat {
 
 #[derive(Debug)]
 pub struct ValidatedArgs {
-    pub manifest_file: PathBuf,
     pub command: ValidatedCommand,
 }
 
 #[derive(Debug)]
 pub enum ValidatedCommand {
     Fetch {
+        manifest_file: PathBuf,
         out_dir: PathBuf,
         threads: Option<u32>,
     },
     List {
+        manifest_file: PathBuf,
         format: Option<OutputFormat>,
     },
+    Cached {
+        format: Option<OutputFormat>,
+        cache_dir: PathBuf,
+    },
+}
+
+impl ValidatedArgs {
+    fn detect_manifest_file(arg: Option<PathBuf>) -> Result<PathBuf, AppError> {
+        match arg {
+            Some(path) => Ok(path),
+            None => {
+                let mut current_dir = std::env::current_dir()?;
+                loop {
+                    let manifest = current_dir.join("Cargo.toml");
+                    if manifest.is_file() {
+                        break Ok(manifest);
+                    }
+                    if !current_dir.pop() {
+                        return Err(AppError::ArgValidation(
+                            "could not find 'Cargo.toml' in the current directory or any parent directory".to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl TryFrom<Args> for ValidatedArgs {
@@ -100,23 +140,13 @@ impl TryFrom<Args> for ValidatedArgs {
 
     fn try_from(args: Args) -> Result<Self, Self::Error> {
         // If the manifest path is not provided, search for it in the directory hierarchy.
-        let manifest_file = if let Some(path) = args.manifest_file {
-            path
-        } else {
-            let mut current_dir = std::env::current_dir()?;
-            loop {
-                let manifest = current_dir.join("Cargo.toml");
-                if manifest.is_file() {
-                    break manifest;
-                }
-                if !current_dir.pop() {
-                    return Err(AppError::ArgValidation("could not find 'Cargo.toml' in the current directory or any parent directory".to_string()));
-                }
-            }
-        };
 
         let command = match args.command {
-            Command::Fetch { out_dir, threads } => {
+            Command::Fetch {
+                manifest_file,
+                out_dir,
+                threads,
+            } => {
                 // If the output directory is not provided, try to use `OUT_DIR` and fall back to the current directory.
                 let out_dir = match out_dir {
                     Some(path) => path,
@@ -135,17 +165,42 @@ impl TryFrom<Args> for ValidatedArgs {
                 }
 
                 ValidatedCommand::Fetch {
+                    manifest_file: ValidatedArgs::detect_manifest_file(manifest_file)?,
                     out_dir: out_dir.canonicalize()?,
                     threads,
                 }
             }
-            Command::List { format } => ValidatedCommand::List { format },
+            Command::List {
+                manifest_file,
+                format,
+            } => ValidatedCommand::List {
+                manifest_file: ValidatedArgs::detect_manifest_file(manifest_file)?,
+                format,
+            },
+            Command::Cached {
+                format,
+                cache_dir_arg,
+            } => {
+                let cache_dir = match cache_dir_arg {
+                    Some(dir) => dir,
+                    None => {
+                        match std::env::var_os("CARGO_FETCH_SOURCE_CACHE") {
+                            Some(dir) => PathBuf::from(dir),
+                            None => {
+                                let project_dirs = directories::ProjectDirs::from("", "", "cargo-fetch-source")
+                                    .ok_or(AppError::ArgValidation(
+                                        "could not determine cache directory".to_string(),
+                                    ))?;
+                                project_dirs.cache_dir().to_path_buf()
+                            }
+                        }
+                    }
+                };
+                ValidatedCommand::Cached { format, cache_dir }
+            }
         };
 
-        Ok(ValidatedArgs {
-            manifest_file,
-            command,
-        })
+        Ok(ValidatedArgs { command })
     }
 }
 
