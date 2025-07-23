@@ -6,13 +6,12 @@ pub type FetchResult = Result<Artefact, anyhow::Error>;
 
 fn make_progress_spinner(m: &MultiProgress, prefix: String) -> ProgressBar {
     let pb = m.add(ProgressBar::new_spinner());
-    pb.set_style(ProgressStyle::default_spinner());
+    // pb.set_style(ProgressStyle::default_spinner());
     pb.enable_steady_tick(std::time::Duration::from_millis(120));
     pb.set_style(
-        ProgressStyle::with_template(
-            "{prefix:.cyan.bold/blue.bold} {elapsed:.cyan.dim} {msg:.cyan/blue}",
-        )
-        .unwrap(),
+        ProgressStyle::with_template("{prefix:.cyan.bold/blue.bold} 🔎 {msg:.cyan/blue} {spinner}")
+            .unwrap()
+            .tick_chars("⣾⣽⣻⢿⡿⣟⣯⣷"),
     );
     pb.set_prefix(prefix);
     pb
@@ -24,27 +23,23 @@ where
     S: AsRef<str>,
     P: AsRef<std::path::Path>,
 {
-    bar.set_message(format!("🔄 Fetching {}...", name.as_ref()));
+    bar.set_message(format!("{} -> ", name.as_ref()));
     let result = source.fetch(name.as_ref(), out_dir.as_ref());
+    let template = if result.is_ok() {
+        "{prefix:.cyan.bold/blue.bold} {msg:.cyan/blue}"
+    } else {
+        "{prefix:.cyan.bold/blue.bold} {msg:.red.bold}"
+    };
+    bar.set_style(ProgressStyle::with_template(template).unwrap());
     let status = match result {
         Ok(Artefact::Git(ref repo)) => {
-            format!("✅ Cloned repository into {}", repo.local.display())
+            format!("😸 {} -> {}", name.as_ref(), repo.local.display())
         }
         Ok(Artefact::Tar(ref tar)) => {
-            format!(
-                "✅ Extracted {} into {}",
-                tar.url,
-                out_dir.as_ref().display()
-            )
+            format!("😸 {} -> {}", name.as_ref(), tar.path.display())
         }
         Err(_) => {
-            bar.set_style(
-                ProgressStyle::with_template(
-                    "{prefix:.cyan.bold/blue.bold} {elapsed:.cyan.dim} {msg:.red.bold}",
-                )
-                .unwrap(),
-            );
-            format!("⚠️ Failed to fetch '{}'", name.as_ref())
+            format!("😿 failed to fetch '{}'", name.as_ref())
         }
     };
     bar.finish_with_message(status);

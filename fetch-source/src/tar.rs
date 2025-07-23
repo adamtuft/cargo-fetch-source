@@ -27,8 +27,12 @@ pub struct Tar {
 }
 
 impl Tar {
-
-    fn extract<P: AsRef<std::path::Path>>(self, bytes: bytes::Bytes, name: &str, dir: P) -> Result<Artefact, Error> {
+    fn extract<P: AsRef<std::path::Path>>(
+        self,
+        bytes: bytes::Bytes,
+        name: &str,
+        dir: P,
+    ) -> Result<Artefact, Error> {
         let archive = decompress(&bytes)?;
         let sub_path = std::path::PathBuf::from_iter(name.split("::"));
         let dir = dir.as_ref().join(&sub_path);
