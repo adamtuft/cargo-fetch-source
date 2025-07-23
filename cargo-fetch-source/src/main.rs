@@ -5,7 +5,6 @@ mod error;
 mod fetch;
 
 use args::OutputFormat;
-use fetch_source::Source;
 
 fn main() -> std::process::ExitCode {
     if let Err(err) = run() {
@@ -41,12 +40,20 @@ fn run() -> Result<(), error::AppError> {
             out_dir,
             threads,
             manifest_file,
+            mut cache,
         } => {
             if let Some(threads) = threads {
                 // SAFETY: only called in a serial region before any other threads exist.
                 unsafe { std::env::set_var("RAYON_NUM_THREADS", format!("{threads}")) };
             }
-            if fetch(sources(&manifest_file)?, &out_dir) {
+            let outcome = fetch(sources(&manifest_file)?, &out_dir, &mut cache);
+            cache.save().map_err(|err| {
+                AppError::Cache(
+                    format!("failed to save cache to {}", cache.cache_file().display()),
+                    err,
+                )
+            })?;
+            if outcome {
                 Ok(())
             } else {
                 // `fetch` returns false on failure, so report an error to produce exit code
@@ -62,10 +69,10 @@ fn run() -> Result<(), error::AppError> {
         }
         args::ValidatedCommand::Cached {
             format: _,
-            ref cache_dir,
+            ref cache,
         } => {
-            println!("Using cache directory: {}", cache_dir.display());
             println!("{args:#?}");
+            println!("Using cache: {cache:#?}");
             Ok(())
         }
     }
@@ -73,12 +80,40 @@ fn run() -> Result<(), error::AppError> {
 
 // Fetch all sources and report outcome with progress bars. Report any errors fetching sources.
 // All sub-errors are swallowed and reported here so just bool to indicate success/failure.
-fn fetch(sources: fetch_source::Sources, out_dir: &std::path::Path) -> bool {
-    let num_sources = sources.len();
-    let errors: Vec<_> = parallel_fetch(sources, out_dir)
+fn fetch(
+    sources: fetch_source::Sources,
+    out_dir: &std::path::Path,
+    cache: &mut fetch_source::Cache,
+) -> bool {
+    // Exclude sources that are already cached
+    let sources_wanted: fetch_source::Sources = sources
         .into_iter()
-        .filter_map(Result::err)
+        .filter_map(|(name, source)| {
+            if cache.contains(&source) {
+                println!("Using cached source for {name}");
+                None
+            } else {
+                // cache.insert(value);
+                Some((name, source))
+            }
+        })
         .collect();
+
+    // `sources` now only contains sources that are not cached and need to be fetched then cached.
+    let num_sources = sources_wanted.len();
+
+    // Fetch the sources, storing those fetched in the cache and returning the errors to be reported.
+    let errors = parallel_fetch(sources_wanted, out_dir)
+        .into_iter()
+        .filter_map(|result| match result {
+            Ok(artefact) => {
+                cache.insert(artefact);
+                None
+            }
+            Err(err) => Some(err),
+        })
+        .collect::<Vec<_>>();
+
     let num_errors = errors.len();
 
     if !errors.is_empty() {

@@ -37,6 +37,30 @@ pub enum SourceParseError {
     TomlInvalid(#[from] toml::de::Error),
 }
 
+/// Represents a source that has been fetched from a remote location.
+/// This is a combination of the fetched artefact and the source it was fetched from.
+#[derive(Debug)]
+pub struct SourceArtefact {
+    artefact: Artefact,
+    source: Source,
+}
+
+impl SourceArtefact {
+    /// Get the fetched artefact
+    pub fn artefact(&self) -> &Artefact {
+        &self.artefact
+    }
+
+    /// Get the source this artefact was fetched from
+    pub fn source(&self) -> &Source {
+        &self.source
+    }
+
+    pub fn into_parts(self) -> (Artefact, Source) {
+        (self.artefact, self.source)
+    }
+}
+
 /// Represents the output produced when a [`Source`](crate::source::Source) is fetched.
 #[derive(Debug)]
 pub enum Artefact {
@@ -52,6 +76,15 @@ impl Artefact {
             #[cfg(feature = "tar")]
             Artefact::Tar(tar) => &tar.path,
             Artefact::Git(git) => &git.local,
+        }
+    }
+
+    /// Consume the artefact to get its path
+    pub fn into_path(self) -> std::path::PathBuf {
+        match self {
+            #[cfg(feature = "tar")]
+            Artefact::Tar(tar) => tar.path,
+            Artefact::Git(git) => git.local,
         }
     }
 
@@ -145,13 +178,21 @@ impl std::fmt::Display for Source {
 }
 
 impl Source {
-    /// Fetch the remote source as declared in `Cargo.toml` and put the resulting [`Artefact`] in `dir`.
-    pub fn fetch<P: AsRef<std::path::Path>>(self, name: &str, dir: P) -> Result<Artefact, Error> {
-        match self {
+    /// Fetch the remote source as declared in `Cargo.toml` and put the resulting [`SourceArtefact`] in `dir`.
+    pub fn fetch<P: AsRef<std::path::Path>>(
+        self,
+        name: &str,
+        dir: P,
+    ) -> Result<SourceArtefact, Error> {
+        let artefact = match self {
             #[cfg(feature = "tar")]
-            Source::Tar(tar) => tar.fetch(name, dir),
-            Source::Git(git) => git.fetch(name, dir),
-        }
+            Source::Tar(ref tar) => tar.fetch(name, dir),
+            Source::Git(ref git) => git.fetch(name, dir),
+        }?;
+        Ok(SourceArtefact {
+            artefact,
+            source: self,
+        })
     }
 
     /// Get the digest of the source, which is a unique identifier for the source.

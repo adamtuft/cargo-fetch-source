@@ -6,6 +6,8 @@ use thiserror::Error;
 pub enum AppError {
     #[error("Argument error: {0}")]
     ArgValidation(String),
+    #[error("Cache error: {0}")]
+    Cache(String, #[source] fetch_source::Error),
     #[error(transparent)]
     IO(#[from] std::io::Error),
     #[error("Failed to read manifest file: {manifest}")]
@@ -38,6 +40,7 @@ impl From<AppError> for ExitCode {
                 manifest: _,
                 err: _,
             } => 5,
+            AppError::Cache(_, error) => 6,
         })
     }
 }

@@ -28,7 +28,7 @@ pub struct Tar {
 
 impl Tar {
     fn extract<P: AsRef<std::path::Path>>(
-        self,
+        &self,
         bytes: bytes::Bytes,
         name: &str,
         dir: P,
@@ -41,13 +41,13 @@ impl Tar {
         }
         extract_tar_archive(&archive, &dir)?;
         Ok(Artefact::Tar(TarArtefact {
-            url: self.url,
+            url: self.url.clone(),
             path: dir,
         }))
     }
 
     /// Download and extract the archive into `dir`.
-    pub fn fetch<P: AsRef<std::path::Path>>(self, name: &str, dir: P) -> Result<Artefact, Error> {
+    pub fn fetch<P: AsRef<std::path::Path>>(&self, name: &str, dir: P) -> Result<Artefact, Error> {
         let bytes = reqwest::blocking::get(&self.url)?.bytes()?;
         self.extract(bytes, name, dir)
     }

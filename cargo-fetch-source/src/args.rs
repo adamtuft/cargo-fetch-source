@@ -52,10 +52,15 @@ enum Command {
         /// directories.
         #[arg(long, short = 'm', value_name = "PATH", global = true)]
         manifest_file: Option<PathBuf>,
+
         /// Output directory for fetched sources. If absent, try the `OUT_DIR` environment variable,
         /// then fall back to the current working directory. The given directory must exist.
         #[arg(long, short = 'o', value_name = "PATH")]
         out_dir: Option<PathBuf>,
+
+        /// Cache directory to use.
+        #[arg(long = "cache", short = 'c', value_name = "PATH")]
+        cache_dir: Option<PathBuf>,
 
         /// Number of threads to spawn. Defaults to one per logical CPU.
         #[arg(long, short = 't', value_name = "NUM-THREADS")]
@@ -101,6 +106,7 @@ pub enum ValidatedCommand {
     Fetch {
         manifest_file: PathBuf,
         out_dir: PathBuf,
+        cache: fetch_source::Cache,
         threads: Option<u32>,
     },
     List {
@@ -109,7 +115,7 @@ pub enum ValidatedCommand {
     },
     Cached {
         format: Option<OutputFormat>,
-        cache_dir: PathBuf,
+        cache: fetch_source::Cache,
     },
 }
 
@@ -159,6 +165,21 @@ impl ValidatedArgs {
             },
         }
     }
+
+    /// Loads the cache from the given directory, creating a new cache if the file does not exist.
+    /// Also creates the directory if it does not exist.
+    fn load_cache_from(cache_dir: std::path::PathBuf) -> Result<fetch_source::Cache, AppError> {
+        if !cache_dir.exists() {
+            std::fs::create_dir_all(&cache_dir)?;
+        }
+        fetch_source::Cache::load(&cache_dir).map_err(|e| {
+            AppError::ArgValidation(format!(
+                "failed to load cache in {}: {}",
+                cache_dir.display(),
+                e
+            ))
+        })
+    }
 }
 
 impl TryFrom<Command> for ValidatedCommand {
@@ -169,6 +190,7 @@ impl TryFrom<Command> for ValidatedCommand {
             Command::Fetch {
                 manifest_file,
                 out_dir,
+                cache_dir,
                 threads,
             } => {
                 // If the output directory is not provided, try to use `OUT_DIR` and fall back to the current directory.
@@ -182,9 +204,13 @@ impl TryFrom<Command> for ValidatedCommand {
                     )));
                 }
 
+                let cache_dir = ValidatedArgs::detect_cache_dir(cache_dir)?;
+                let cache = ValidatedArgs::load_cache_from(cache_dir)?;
+
                 Ok(ValidatedCommand::Fetch {
                     manifest_file: ValidatedArgs::detect_manifest_file(manifest_file)?,
                     out_dir: out_dir.canonicalize()?,
+                    cache,
                     threads,
                 })
             }
@@ -198,10 +224,11 @@ impl TryFrom<Command> for ValidatedCommand {
             Command::Cached {
                 format,
                 cache_dir: cache_dir_arg,
-            } => Ok(ValidatedCommand::Cached {
-                format,
-                cache_dir: ValidatedArgs::detect_cache_dir(cache_dir_arg)?,
-            }),
+            } => {
+                let cache_dir = ValidatedArgs::detect_cache_dir(cache_dir_arg)?;
+                let cache = ValidatedArgs::load_cache_from(cache_dir)?;
+                Ok(ValidatedCommand::Cached { format, cache })
+            }
         }
     }
 }

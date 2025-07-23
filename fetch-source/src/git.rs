@@ -5,7 +5,7 @@ use std::io::Read;
 use super::error::Error;
 use super::source::Artefact;
 
-#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq, Clone)]
 pub enum GitReference {
     #[serde(rename = "branch")]
     Branch(String),
@@ -16,7 +16,7 @@ pub enum GitReference {
 }
 
 /// A definition of a git remote to be (or which was) cloned
-#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq, Clone)]
 pub struct GitSpec {
     #[serde(rename = "git")]
     pub url: String,
@@ -34,7 +34,7 @@ pub struct GitArtefact {
 }
 
 /// Represents a remote git repository to be cloned.
-#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq, Clone)]
 pub struct Git {
     #[serde(flatten)]
     spec: GitSpec,
@@ -68,7 +68,7 @@ impl Git {
     }
 
     /// Clone the repository into `dir`.
-    pub fn fetch<P: AsRef<std::path::Path>>(self, name: &str, dir: P) -> Result<Artefact, Error> {
+    pub fn fetch<P: AsRef<std::path::Path>>(&self, name: &str, dir: P) -> Result<Artefact, Error> {
         let sub_path = std::path::PathBuf::from_iter(name.split("::"));
         let local = dir.as_ref().join(&sub_path);
         if !local.exists() {
@@ -79,7 +79,7 @@ impl Git {
         if status.success() {
             Ok(Artefact::Git(GitArtefact {
                 local,
-                remote: self.spec,
+                remote: self.spec.clone(),
             }))
         } else {
             let mut stderr = String::new();

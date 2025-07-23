@@ -124,6 +124,8 @@ pub mod source;
 pub mod tar;
 
 #[doc(inline)]
+pub use crate::cache::*;
+#[doc(inline)]
 pub use crate::error::Error;
 #[doc(inline)]
 pub use crate::source::*;
@@ -139,7 +141,7 @@ pub fn load_sources<P: AsRef<std::path::Path>>(path: P) -> Result<Sources, Error
 pub fn fetch_all<P: AsRef<std::path::Path>>(
     sources: Sources,
     out_dir: P,
-) -> Vec<Result<Artefact, crate::Error>> {
+) -> Vec<Result<SourceArtefact, crate::Error>> {
     sources
         .into_iter()
         .map(|(name, source)| source.fetch(&name, &out_dir))
@@ -154,7 +156,7 @@ use rayon::prelude::*;
 pub fn fetch_all_par<P: AsRef<std::path::Path> + Sync>(
     sources: Sources,
     out_dir: P,
-) -> Vec<Result<Artefact, crate::Error>> {
+) -> Vec<Result<SourceArtefact, crate::Error>> {
     sources
         .into_par_iter()
         .map(|(name, source)| source.fetch(&name, out_dir.as_ref()))

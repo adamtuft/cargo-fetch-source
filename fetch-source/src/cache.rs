@@ -3,61 +3,102 @@ use std::collections::BTreeMap;
 
 use crate::Source;
 
+const CACHE_FILE_NAME: &str = "fetch-source-cache.json";
+
+/// Represents a cached source artefact, which includes the path to the artefact and the
+/// source it was fetched from.
 #[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 pub struct CacheValue {
     pub path: std::path::PathBuf,
     pub source: crate::Source,
 }
 
+/// The cache is a collection of cached artefacts, indexed by their source's digest.
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 pub struct Cache {
     #[serde(flatten)]
     map: BTreeMap<String, CacheValue>,
+    #[serde(skip)]
+    cache_file: std::path::PathBuf,
 }
 
 impl Cache {
-    pub fn new() -> Self {
+    fn create_at(cache_file: std::path::PathBuf) -> Self {
         Self {
             map: BTreeMap::new(),
+            cache_file,
         }
     }
 
+    /// Get the cache file path.
+    pub fn cache_file(&self) -> &std::path::Path {
+        &self.cache_file
+    }
+
+    /// Loads the cache from a JSON file in the given directory, creating a new cache if the file does not exist.
     pub fn load<P>(cache_dir: P) -> Result<Self, crate::Error>
     where
         P: AsRef<std::path::Path>,
     {
-        Ok(serde_json::from_str(&std::fs::read_to_string(
-            cache_dir.as_ref().join("fetch-source-cache.json"),
-        )?)?)
+        let cache_file = cache_dir.as_ref().join(CACHE_FILE_NAME);
+        if !cache_file.is_file() {
+            Ok(Self::create_at(cache_file))
+        } else {
+            Ok(serde_json::from_str(&std::fs::read_to_string(cache_file)?)?)
+        }
     }
 
-    pub fn save<P>(&self, cache_dir: P) -> Result<(), crate::Error>
+    /// Saves the cache.
+    pub fn save(&self) -> Result<(), crate::Error> {
+        let json = serde_json::to_string_pretty(self)?;
+        Ok(std::fs::write(&self.cache_file, json)?)
+    }
+
+    /// Check whether the cache file exists in the given directory.
+    pub fn exists<P>(cache_dir: P) -> bool
     where
         P: AsRef<std::path::Path>,
     {
-        let json = serde_json::to_string_pretty(self)?;
-        std::fs::write(cache_dir.as_ref().join("fetch-source-cache.json"), json)?;
-        Ok(())
+        cache_dir.as_ref().join(CACHE_FILE_NAME).is_file()
     }
 
-    pub fn insert(&mut self, value: CacheValue) {
-        self.map.insert(value.source.digest(), value);
+    /// Inserts a new value into the cache, replacing any existing value with the same source digest.
+    pub fn insert(&mut self, artefact: crate::SourceArtefact) {
+        let (artefact, source) = artefact.into_parts();
+        let path = artefact.into_path();
+        let digest = source.digest();
+        let value = CacheValue { path, source };
+        self.map.insert(digest, value);
     }
 
+    /// Check whether the cache contains the given source.
     pub fn contains(&self, source: &Source) -> bool {
         self.map.contains_key(&source.digest())
     }
 
+    /// Retrieves a cached value for the given source, if it exists.
     pub fn get(&self, source: &Source) -> Option<&CacheValue> {
         self.map.get(&source.digest())
     }
 
-    pub fn keys(&self) -> impl Iterator<Item = &String> {
-        self.map.keys()
+    /// Removes a cached value for the given source, returning it if it existed.
+    pub fn remove(&mut self, source: &Source) -> Option<CacheValue> {
+        self.map.remove(&source.digest())
     }
 
+    /// Returns an iterator over the cached values.
     pub fn values(&self) -> impl Iterator<Item = &CacheValue> {
         self.map.values()
+    }
+
+    /// Checks if the cache is empty.
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    /// Returns the number of cached values.
+    pub fn len(&self) -> usize {
+        self.map.len()
     }
 }
 
