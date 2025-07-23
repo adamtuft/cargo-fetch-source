@@ -39,6 +39,9 @@ pub(crate) enum ErrorKind {
     TomlDe(#[from] toml::de::Error),
 
     #[error(transparent)]
+    SerdeDe(#[from] serde_json::Error),
+
+    #[error(transparent)]
     Parse(#[from] crate::SourceParseError),
 
     #[error("Command '{command}' exited with status {status}")]

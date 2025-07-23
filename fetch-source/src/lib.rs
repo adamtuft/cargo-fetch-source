@@ -116,6 +116,7 @@ fetch_source::try_parse_toml(cargo_toml)?.into_par_iter()
 //! - All clones are shallow, i.e. with a depth of 1.
 //!
 
+mod cache;
 mod error;
 pub mod git;
 pub mod source;

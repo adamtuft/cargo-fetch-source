@@ -154,6 +154,31 @@ impl Source {
         }
     }
 
+    /// Get the digest of the source, which is a unique identifier for the source.
+    /// This is used to identify the source in the cache.
+    pub fn digest(&self) -> String {
+        let input = match self {
+            #[cfg(feature = "tar")]
+            Source::Tar(tar) => {
+                format!("tar:{}", tar.upstream())
+            }
+            Source::Git(git) => {
+                let mut input = format!("git:{}", git.upstream());
+                if let Some(branch) = git.branch_name() {
+                    input.push_str(&format!(":b:{branch}",));
+                }
+                if let Some(sha) = git.commit_sha() {
+                    input.push_str(&format!(":s:{sha}",));
+                }
+                if git.is_recursive() {
+                    input.push_str(":r");
+                }
+                input
+            }
+        };
+        sha256::digest(input)
+    }
+
     /// The upstream URL (i.e. git repo or archive link).
     pub fn upstream(&self) -> &str {
         match self {
@@ -215,7 +240,7 @@ impl Source {
     }
 }
 
-/// Represents the contents of the `package.metadata.fetch-source` table in a `Cargo.toml` file.
+/// Represents the contents of the `package.metadata.fetch-source` table in a `Cargo.toml` file.X
 pub type Sources = std::collections::HashMap<String, Source>;
 
 /// Parse a `package.metadata.fetch-source` table into a [`Sources`](crate::source::Sources) map
@@ -411,6 +436,88 @@ mod test_parsing_sources_table_failure_modes {
             Err(VariantUnknown {
                 source_name: "bar".to_string()
             })
+        );
+    }
+}
+
+#[cfg(test)]
+mod test_source_digest {
+    use super::*;
+
+    #[cfg(feature = "tar")]
+    #[test]
+    fn tar() {
+        let table = toml::toml! {
+            tar = "https://example.com/foo.tar.gz"
+        };
+        let digest = Source::parse("src", &table).unwrap().digest();
+        assert_eq!(
+            digest,
+            "8856cd75f88a844329fc4d8787b578b00c0036b7afab4aa2406efbb58d3fdae4"
+        );
+    }
+
+    #[test]
+    fn git() {
+        let table = toml::toml! {
+            git = "git@github.com:foo/bar.git"
+        };
+        let digest = Source::parse("src", &table).unwrap().digest();
+        assert_eq!(
+            digest,
+            "02d7c62c39f69425e2393d49d1924b63c891fb52a9f6f728e129afca627f4938"
+        );
+    }
+
+    #[test]
+    fn git_recursive() {
+        let table = toml::toml! {
+            git = "git@github.com:foo/bar.git"
+            recursive = true
+        };
+        let digest = Source::parse("src", &table).unwrap().digest();
+        assert_eq!(
+            digest,
+            "824c7dffd49790919975bd1c326c37d9f7a9348dbb0c159cd6c625fe10639feb"
+        );
+    }
+
+    #[test]
+    fn git_branch_main() {
+        let table = toml::toml! {
+            git = "git@github.com:foo/bar.git"
+            branch = "main"
+        };
+        let digest = Source::parse("src", &table).unwrap().digest();
+        assert_eq!(
+            digest,
+            "306c2da94b76fb2f8660a84f74b857f33ee7fce991a895cbde917e6c9eb210b4"
+        );
+    }
+
+    #[test]
+    fn git_branch_other() {
+        let table = toml::toml! {
+            git = "git@github.com:foo/bar.git"
+            branch = "other"
+        };
+        let digest = Source::parse("src", &table).unwrap().digest();
+        assert_eq!(
+            digest,
+            "3731110a1502431ef72f18aee37c37f2a7bab61a370de60af493f326368a7010"
+        );
+    }
+
+    #[test]
+    fn git_sha() {
+        let table = toml::toml! {
+            git = "git@github.com:foo/bar.git"
+            rev = "abcd1234"
+        };
+        let digest = Source::parse("src", &table).unwrap().digest();
+        assert_eq!(
+            digest,
+            "d0f421a2f76d0a84d8f16f96f94d903a270c3b9b716384d6307f0a5046c6ff1a"
         );
     }
 }
