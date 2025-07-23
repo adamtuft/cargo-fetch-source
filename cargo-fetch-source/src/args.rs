@@ -150,5 +150,12 @@ impl TryFrom<Args> for ValidatedArgs {
 }
 
 pub fn parse() -> Result<ValidatedArgs, AppError> {
-    ValidatedArgs::try_from(Args::parse())
+    let raw_args = std::env::args().collect::<Vec<_>>();
+    // If run via `cargo fetch-source` skip the command argument which cargo passes to the binary.
+    let args = if raw_args.len() > 1 && raw_args[1] == "fetch-source" {
+        Args::parse_from(&raw_args[1..])
+    } else {
+        Args::parse_from(&raw_args)
+    };
+    ValidatedArgs::try_from(args)
 }
