@@ -1,7 +1,4 @@
-use crate::{
-    error::AppError,
-    fetch::parallel_fetch_uncached,
-};
+use crate::{error::AppError, fetch::parallel_fetch_uncached};
 
 mod args;
 mod error;
@@ -43,102 +40,102 @@ fn run() -> Result<(), error::AppError> {
             out_dir,
             threads,
             manifest_file,
-            mut cache,
-        } => {
-            if let Some(threads) = threads {
-                // SAFETY: only called in a serial region before any other threads exist.
-                unsafe { std::env::set_var("RAYON_NUM_THREADS", format!("{threads}")) };
-            }
-            let outcome = fetch(sources(&manifest_file)?, &out_dir, &mut cache);
-            cache.save().map_err(|err| {
-                assert!(cache.cache_file() != std::ffi::OsStr::new(""), "Cache file should be set");
-                AppError::Cache(
-                    format!("failed to save cache to {}", cache.cache_file().display()),
-                    err,
-                )
-            })?;
-            if outcome {
-                Ok(())
-            } else {
-                // `fetch` returns false on failure, so report an error to produce exit code
-                Err(AppError::Fetch)
-            }
-        }
+            cache,
+        } => fetch(&out_dir, threads, &manifest_file, cache),
         args::ValidatedCommand::List {
             format,
             manifest_file,
-        } => {
-            list(sources(&manifest_file)?, format);
-            Ok(())
-        }
+        } => list(sources(&manifest_file)?, format),
         args::ValidatedCommand::Cached {
             format: _,
             ref cache,
-        } => {
-            println!("// Contents of cache file: {}", cache.cache_file().display());
-            println!("{}", serde_json::to_string_pretty(cache).expect("Failed to serialize cache"));
-            Ok(())
+        } => cached(cache),
+    }
+}
+
+fn fetch(
+    out_dir: &std::path::Path,
+    threads: Option<u32>,
+    manifest_file: &std::path::Path,
+    cache: fetch_source::Cache,
+) -> Result<(), AppError> {
+    let sources = sources(manifest_file)?;
+    let num_sources = sources.len();
+    match fetch_sources(sources, out_dir, cache, threads)? {
+        errors if errors.is_empty() => Ok(()),
+        errors => {
+            report_fetch_results(errors, num_sources);
+            Err(AppError::Fetch)
         }
     }
 }
 
-// Fetch all sources and report outcome with progress bars. Report any errors fetching sources.
-// All sub-errors are swallowed and reported here so just bool to indicate success/failure.
+// Fetch all sources and return any errors that occurred during fetching.
 // Update the cache with any successfully fetched artefacts.
-fn fetch(
+fn fetch_sources(
     sources: fetch_source::Sources,
     out_dir: &std::path::Path,
-    cache: &mut fetch_source::Cache,
-) -> bool {
-    let num_sources = sources.len();
-
-    // Fetch sources then fold the fetched sources into the cache. Accumulate any errors.
-    let (errors, _) = parallel_fetch_uncached(cache.into_cached_sources(sources), out_dir)
-        .into_iter()
-        .fold((Vec::new(), cache), |(mut v, c), result| {
-            match result {
-                Ok(artefact) => {
-                    c.insert(artefact);
-                }
-                Err(err) => {
-                    v.push(err);
-                }
-            }
-            (v, c)
-        });
-
-    let num_errors = errors.len();
-
-    if !errors.is_empty() {
-        let error_style = console::Style::new().red().bold();
-        eprintln!("Failed to fetch {} sources:", errors.len());
-        for (k, err) in (1..).zip(&errors) {
-            eprintln!(
-                "Error [{k}/{num_errors}]: {}",
-                error_style.apply_to(err.to_string())
-            );
-            err.chain().skip(1).for_each(|cause| {
-                let cause_text = format!("{cause}");
-                let mut line_iter = cause_text.split("\n");
-                eprintln!(
-                    "  caused by: {}",
-                    error_style.apply_to(line_iter.next().unwrap_or("?"))
-                );
-                line_iter.for_each(|line| eprintln!("             {}", error_style.apply_to(line)));
-            });
-        }
+    mut cache: fetch_source::Cache,
+    threads: Option<u32>,
+) -> Result<Vec<anyhow::Error>, AppError> {
+    if let Some(threads) = threads {
+        // SAFETY: only called in a serial region before any other threads exist.
+        unsafe { std::env::set_var("RAYON_NUM_THREADS", format!("{threads}")) };
     }
 
+    // Fetch sources then fold the fetched sources into the cache. Accumulate any errors.
+    let errors = parallel_fetch_uncached(cache.into_cached_sources(sources), out_dir)
+        .into_iter()
+        .fold(Vec::new(), |mut errors, result| {
+            match result {
+                Ok(artefact) => {
+                    cache.insert(artefact);
+                }
+                Err(err) => {
+                    errors.push(err);
+                }
+            }
+            errors
+        });
+
+    cache.save().map_err(|err| {
+        AppError::Cache(
+            format!("failed to save cache to {}", cache.cache_file().display()),
+            err,
+        )
+    })?;
+
+    Ok(errors)
+}
+
+// Report fetch results, including any errors and success messages.
+fn report_fetch_results(errors: Vec<anyhow::Error>, num_sources: usize) {
+    let num_errors = errors.len();
     let num_success = num_sources - num_errors;
+    let error_style = console::Style::new().red().bold();
+    eprintln!("Failed to fetch {} sources:", errors.len());
+    for (k, err) in (1..).zip(&errors) {
+        eprintln!(
+            "Error [{k}/{num_errors}]: {}",
+            error_style.apply_to(err.to_string())
+        );
+        err.chain().skip(1).for_each(|cause| {
+            let cause_text = format!("{cause}");
+            let mut line_iter = cause_text.split("\n");
+            eprintln!(
+                "  caused by: {}",
+                error_style.apply_to(line_iter.next().unwrap_or("?"))
+            );
+            line_iter.for_each(|line| eprintln!("             {}", error_style.apply_to(line)));
+        });
+    }
     if num_success > 0 {
         println!("🎉 Successfully fetched {num_success} source(s)!");
     }
-
-    num_errors == 0
 }
 
 // List all sources in the chosen format
-fn list(sources: fetch_source::Sources, format: Option<OutputFormat>) {
+fn list(sources: fetch_source::Sources, format: Option<OutputFormat>) -> Result<(), AppError> {
     match format {
         Some(OutputFormat::Toml) => {
             // SAFETY: unwrap here because we only accept values that were previously deserialised
@@ -168,4 +165,17 @@ fn list(sources: fetch_source::Sources, format: Option<OutputFormat>) {
             }
         }
     }
+    Ok(())
+}
+
+fn cached(cache: &fetch_source::Cache) -> Result<(), AppError> {
+    println!(
+        "// Contents of cache file: {}",
+        cache.cache_file().display()
+    );
+    println!(
+        "{}",
+        serde_json::to_string_pretty(cache).expect("Failed to serialize cache")
+    );
+    Ok(())
 }
