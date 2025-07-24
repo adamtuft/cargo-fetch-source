@@ -65,7 +65,9 @@ impl SourceArtefact {
 #[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 pub enum Artefact {
     #[cfg(feature = "tar")]
+    #[serde(rename = "tar")]
     Tar(TarArtefact),
+    #[serde(rename = "git")]
     Git(GitArtefact),
 }
 
@@ -163,7 +165,9 @@ impl SourceVariant {
 #[serde(untagged)]
 pub enum Source {
     #[cfg(feature = "tar")]
+    #[serde(rename = "tar")]
     Tar(Tar),
+    #[serde(rename = "git")]
     Git(Git),
 }
 

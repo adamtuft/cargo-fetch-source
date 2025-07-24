@@ -1,31 +1,19 @@
 // A BTree maintains key order
 use std::collections::BTreeMap;
 
-use crate::{Source, SourceArtefact, Sources};
+use crate::{Source, SourceArtefact};
 
 const CACHE_FILE_NAME: &str = "fetch-source-cache.json";
 
-pub type CachedSources<K> = BTreeMap<K, MaybeCached<Source>>;
+pub type CachedSources<'a, K> = BTreeMap<K, MaybeCachedSource<'a>>;
 
 /// Represents whether a given Source is cached or not.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CachedState {
-    Cached,
-    NotCached,
+pub enum MaybeCachedSource<'cache> {
+    /// The source was fetched and stored in the cache.
+    Cached(Source, &'cache SourceArtefact),
+    /// The source was not found in the cache.
+    NotCached(Source),
 }
-
-pub type MaybeCached<V> = (CachedState, V);
-
-impl CachedState {
-    pub fn cached<V>(value: V) -> MaybeCached<V> {
-        (CachedState::Cached, value)
-    }
-
-    pub fn not_cached<V>(value: V) -> MaybeCached<V> {
-        (CachedState::NotCached, value)
-    }
-}
-
 
 /// The cache is a collection of cached artefacts, indexed by their source's digest.
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
@@ -48,15 +36,16 @@ impl Cache {
         }
     }
 
-    /// Tag sources as cached or not cached
-    pub fn check_cached<S, K>(&self, sources: S) -> CachedSources<K>
+    /// Tag cached sources with a reference to their cached artefact.
+    pub fn into_cached_sources<'cache, 'src, S, K>(&'cache self, sources: S) -> CachedSources<'cache, K>
     where
         S: IntoIterator<Item = (K, Source)>,
+        'src: 'cache,
         K: Ord,
     {
         sources
             .into_iter()
-            .map(|(key, source)| (key, self.into_maybe_cached(source)))
+            .map(|(key, source)| (key, self.get(source)))
             .collect()
     }
 
@@ -74,7 +63,11 @@ impl Cache {
         if !cache_file.is_file() {
             Ok(Self::create_at(cache_file))
         } else {
-            Ok(serde_json::from_str(&std::fs::read_to_string(cache_file)?)?)
+            let cache: Self = serde_json::from_str(&std::fs::read_to_string(&cache_file)?)?;
+            Ok(Self {
+                map: cache.map,
+                cache_file,
+            })
         }
     }
 
@@ -98,21 +91,19 @@ impl Cache {
     }
 
     /// Check whether the cache contains the given source.
-    pub fn contains(&self, source: &Source) -> bool {
+    pub fn is_cached(&self, source: &Source) -> bool {
         self.map.contains_key(&__digest__(source))
     }
 
-    pub fn into_maybe_cached(&self, source: Source) -> MaybeCached<Source> {
-        if self.contains(&source) {
-            CachedState::cached(source)
-        } else {
-            CachedState::not_cached(source)
-        }
-    }
-
     /// Retrieves a cached value for the given source, if it exists.
-    pub fn get<'cache, 'src>(&'cache self, source: &Source) -> Option<&SourceArtefact> {
-        self.map.get(&__digest__(source))
+    pub fn get<'cache, 'src>(&'cache self, source: Source) -> MaybeCachedSource<'cache>
+    where
+        'src: 'cache,
+    {
+        match self.map.get(&__digest__(&source)) {
+            Some(artefact) => MaybeCachedSource::Cached(source, artefact),
+            None => MaybeCachedSource::NotCached(source),
+        }
     }
 
     /// Removes a cached value for the given source, returning it if it existed.
