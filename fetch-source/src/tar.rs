@@ -13,7 +13,7 @@ use super::source::Artefact;
 pub type TarItems = std::collections::HashMap<std::path::PathBuf, Vec<std::path::PathBuf>>;
 
 /// Represents the items extracted from a tar archive.
-#[derive(Debug)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 pub struct TarArtefact {
     pub url: String,
     pub path: std::path::PathBuf,

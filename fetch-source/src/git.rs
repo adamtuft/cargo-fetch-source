@@ -27,7 +27,7 @@ pub struct GitSpec {
 }
 
 /// Represents a git repo cloned according to a source definition
-#[derive(Debug)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 pub struct GitArtefact {
     pub local: std::path::PathBuf,
     pub remote: GitSpec,

@@ -40,7 +40,7 @@ impl From<AppError> for ExitCode {
                 manifest: _,
                 err: _,
             } => 5,
-            AppError::Cache(_, error) => 6,
+            AppError::Cache(_, _) => 6,
         })
     }
 }

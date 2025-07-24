@@ -1,25 +1,43 @@
 // A BTree maintains key order
 use std::collections::BTreeMap;
 
-use crate::Source;
+use crate::{Source, SourceArtefact, Sources};
 
 const CACHE_FILE_NAME: &str = "fetch-source-cache.json";
 
-/// Represents a cached source artefact, which includes the path to the artefact and the
-/// source it was fetched from.
-#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
-pub struct CacheValue {
-    pub path: std::path::PathBuf,
-    pub source: crate::Source,
+pub type CachedSources<K> = BTreeMap<K, MaybeCached<Source>>;
+
+/// Represents whether a given Source is cached or not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CachedState {
+    Cached,
+    NotCached,
 }
+
+pub type MaybeCached<V> = (CachedState, V);
+
+impl CachedState {
+    pub fn cached<V>(value: V) -> MaybeCached<V> {
+        (CachedState::Cached, value)
+    }
+
+    pub fn not_cached<V>(value: V) -> MaybeCached<V> {
+        (CachedState::NotCached, value)
+    }
+}
+
 
 /// The cache is a collection of cached artefacts, indexed by their source's digest.
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 pub struct Cache {
     #[serde(flatten)]
-    map: BTreeMap<String, CacheValue>,
+    map: BTreeMap<String, SourceArtefact>,
     #[serde(skip)]
     cache_file: std::path::PathBuf,
+}
+
+fn __digest__<D: serde::Serialize>(data: &D) -> String {
+    sha256::digest(serde_json::to_string(data).unwrap())
 }
 
 impl Cache {
@@ -28,6 +46,18 @@ impl Cache {
             map: BTreeMap::new(),
             cache_file,
         }
+    }
+
+    /// Tag sources as cached or not cached
+    pub fn check_cached<S, K>(&self, sources: S) -> CachedSources<K>
+    where
+        S: IntoIterator<Item = (K, Source)>,
+        K: Ord,
+    {
+        sources
+            .into_iter()
+            .map(|(key, source)| (key, self.into_maybe_cached(source)))
+            .collect()
     }
 
     /// Get the cache file path.
@@ -63,31 +93,35 @@ impl Cache {
     }
 
     /// Inserts a new value into the cache, replacing any existing value with the same source digest.
-    pub fn insert(&mut self, artefact: crate::SourceArtefact) {
-        let (artefact, source) = artefact.into_parts();
-        let path = artefact.into_path();
-        let digest = source.digest();
-        let value = CacheValue { path, source };
-        self.map.insert(digest, value);
+    pub fn insert(&mut self, artefact: SourceArtefact) {
+        self.map.insert(__digest__(artefact.source()), artefact);
     }
 
     /// Check whether the cache contains the given source.
     pub fn contains(&self, source: &Source) -> bool {
-        self.map.contains_key(&source.digest())
+        self.map.contains_key(&__digest__(source))
+    }
+
+    pub fn into_maybe_cached(&self, source: Source) -> MaybeCached<Source> {
+        if self.contains(&source) {
+            CachedState::cached(source)
+        } else {
+            CachedState::not_cached(source)
+        }
     }
 
     /// Retrieves a cached value for the given source, if it exists.
-    pub fn get(&self, source: &Source) -> Option<&CacheValue> {
-        self.map.get(&source.digest())
+    pub fn get<'cache, 'src>(&'cache self, source: &Source) -> Option<&SourceArtefact> {
+        self.map.get(&__digest__(source))
     }
 
     /// Removes a cached value for the given source, returning it if it existed.
-    pub fn remove(&mut self, source: &Source) -> Option<CacheValue> {
-        self.map.remove(&source.digest())
+    pub fn remove(&mut self, source: &Source) -> Option<SourceArtefact> {
+        self.map.remove(&__digest__(source))
     }
 
     /// Returns an iterator over the cached values.
-    pub fn values(&self) -> impl Iterator<Item = &CacheValue> {
+    pub fn values(&self) -> impl Iterator<Item = &SourceArtefact> {
         self.map.values()
     }
 
@@ -103,8 +137,8 @@ impl Cache {
 }
 
 impl IntoIterator for Cache {
-    type Item = (String, CacheValue);
-    type IntoIter = std::collections::btree_map::IntoIter<String, CacheValue>;
+    type Item = (String, SourceArtefact);
+    type IntoIter = std::collections::btree_map::IntoIter<String, SourceArtefact>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.map.into_iter()
@@ -112,8 +146,8 @@ impl IntoIterator for Cache {
 }
 
 impl<'a> IntoIterator for &'a Cache {
-    type Item = (&'a String, &'a CacheValue);
-    type IntoIter = std::collections::btree_map::Iter<'a, String, CacheValue>;
+    type Item = (&'a String, &'a SourceArtefact);
+    type IntoIter = std::collections::btree_map::Iter<'a, String, SourceArtefact>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.map.iter()
@@ -125,6 +159,19 @@ mod test_cache {
     use directories::ProjectDirs;
 
     use super::*;
+
+    #[test]
+    fn get_digest() {
+        let source = crate::source! {
+            "src",
+            tar = "https://example.com/foo.tar.gz"
+        }
+        .unwrap();
+        let json = serde_json::to_string(&source).unwrap();
+        let digest = __digest__(&source);
+        println!("Source: {json}");
+        println!("Digest: {digest}");
+    }
 
     #[test]
     fn get_cache_dir() {
@@ -150,7 +197,7 @@ mod test_cache {
         assert_eq!(cache.map.len(), 1);
         // Test iteration
         for (k, v) in cache {
-            assert_eq!(k, v.source.digest());
+            assert_eq!(k, __digest__(v.source()));
         }
     }
 }
