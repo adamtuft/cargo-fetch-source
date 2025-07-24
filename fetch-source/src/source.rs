@@ -39,7 +39,7 @@ pub enum SourceParseError {
 
 /// Represents a source that has been fetched from a remote location.
 /// This is a combination of the fetched artefact and the source it was fetched from.
-#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq, Clone)]
 pub struct SourceArtefact {
     artefact: Artefact,
     source: Source,
@@ -62,7 +62,7 @@ impl SourceArtefact {
 }
 
 /// Represents the output produced when a [`Source`](crate::source::Source) is fetched.
-#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq, Clone)]
 pub enum Artefact {
     #[cfg(feature = "tar")]
     #[serde(rename = "tar")]
@@ -161,7 +161,7 @@ impl SourceVariant {
 }
 
 /// Represents an entry in the `package.metadata.fetch-source` table.
-#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq, Clone)]
 #[serde(untagged)]
 pub enum Source {
     #[cfg(feature = "tar")]

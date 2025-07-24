@@ -8,96 +8,87 @@ use tar::Archive;
 use super::error::Error;
 use super::source::Artefact;
 
-/// A map of items extracted from an archive. Keys are either top-level files, or top-level
-/// directies mapped to a list of their contents.
-pub type TarItems = std::collections::HashMap<std::path::PathBuf, Vec<std::path::PathBuf>>;
-
-/// Represents the items extracted from a tar archive.
-#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
-pub struct TarArtefact {
+/// A definition of a tar archive to be (or which was) downloaded and extracted
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq, Clone)]
+pub struct TarSpec {
+    #[serde(rename = "tar")]
     pub url: String,
-    pub path: std::path::PathBuf,
 }
 
-/// Represents a remote tar archive.
-#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
+/// Represents a remote tar archive to be downloaded and extracted.
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq, Clone)]
 pub struct Tar {
-    #[serde(rename = "tar")]
-    url: String,
+    #[serde(flatten)]
+    spec: TarSpec,
 }
 
 impl Tar {
-    fn extract<P: AsRef<std::path::Path>>(
-        &self,
-        bytes: bytes::Bytes,
-        name: &str,
-        dir: P,
-    ) -> Result<Artefact, Error> {
-        let archive = decompress(&bytes)?;
+    /// The upstream URL.
+    pub fn upstream(&self) -> &str {
+        &self.spec.url
+    }
+
+    /// Download and extract the tar archive into `dir`.
+    pub fn fetch<P: AsRef<std::path::Path>>(&self, name: &str, dir: P) -> Result<Artefact, Error> {
         let sub_path = std::path::PathBuf::from_iter(name.split("::"));
-        let dir = dir.as_ref().join(&sub_path);
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir)?;
+        let local = dir.as_ref().join(&sub_path);
+        if !local.exists() {
+            std::fs::create_dir_all(&local)?;
         }
-        extract_tar_archive(&archive, &dir)?;
+        self.download_and_extract(name, &local)?;
         Ok(Artefact::Tar(TarArtefact {
-            url: self.url.clone(),
-            path: dir,
+            path: local,
+            remote: self.spec.clone(),
         }))
     }
 
-    /// Download and extract the archive into `dir`.
-    pub fn fetch<P: AsRef<std::path::Path>>(&self, name: &str, dir: P) -> Result<Artefact, Error> {
-        let bytes = reqwest::blocking::get(&self.url)?.bytes()?;
-        self.extract(bytes, name, dir)
+    #[cfg(not(feature = "async"))]
+    fn download_and_extract<P: AsRef<std::path::Path>>(
+        &self,
+        name: &str,
+        dir: P,
+    ) -> Result<(), Error> {
+        let bytes = reqwest::blocking::get(self.spec.url.clone())?.bytes()?;
+        self.extract(bytes, name, dir.as_ref())
     }
 
     /// Download and extract the archive into `dir`. Consumes inputs to move data into the async
     /// context. Requires `async` feature.
     #[cfg(feature = "async")]
-    pub async fn fetch_async(self, _: &str, dir: PathBuf) -> Result<Artefact, Error> {
-        let bytes = reqwest::get(&self.url).await?.bytes().await?;
-        self.extract(bytes, name, dir)
+    async fn download_and_extract<P: AsRef<std::path::Path>>(
+        &self,
+        name: &str,
+        dir: P,
+    ) -> Result<(), Error> {
+        let bytes = reqwest::get(self.spec.url.clone()).await?.bytes().await?;
+        self.extract(bytes, name, dir.as_ref())
     }
 
-    /// The remote URL.
-    pub fn upstream(&self) -> &str {
-        &self.url
+    fn extract<P: AsRef<std::path::Path>>(
+        &self,
+        bytes: bytes::Bytes,
+        name: &str,
+        dir: P,
+    ) -> Result<(), Error> {
+        let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(bytes.as_ref()));
+        // Unpack the contents of the archive directly into the provided directory
+        archive.unpack(dir.as_ref())?;
+        Ok(())
     }
 }
 
-fn decompress<Data: AsRef<[u8]>>(input: Data) -> Result<Vec<u8>, std::io::Error> {
-    let mut decoder = GzDecoder::new(input.as_ref());
-    let mut output = Vec::new();
-    decoder.read_to_end(&mut output)?;
-    Ok(output)
+impl std::fmt::Display for Tar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.spec.url)
+    }
 }
 
-/// Extract files from a tar archive in memory. Return the extracted items.
-fn extract_tar_archive(archive: &[u8], out_dir: &Path) -> Result<(), std::io::Error> {
-    for archive_entry in Archive::new(archive).entries()? {
-        let mut archive_entry = archive_entry?;
-        let header = archive_entry.header();
-        let path_in_archive = header.path()?;
-        // Construct the actual destination path relative to the output directory
-        let mut dest = out_dir.to_path_buf();
-        dest.push(&path_in_archive);
-        if header.entry_type().is_dir() {
-            std::fs::create_dir_all(&dest)?;
-        } else {
-            if let Some(name) = dest.iter().next_back()
-                && name == "pax_global_header"
-            {
-                continue;
-            }
-            if let Some(p) = dest.parent()
-                && !p.exists()
-            {
-                std::fs::create_dir_all(p)?;
-            }
-            let mut out_file = std::fs::File::create(&dest)?;
-            std::io::copy(&mut archive_entry, &mut out_file)?;
-        }
-    }
-    Ok(())
+/// Represents a tar archive that has been downloaded and extracted.
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq, Clone)]
+pub struct TarArtefact {
+    pub path: std::path::PathBuf,
+    pub remote: TarSpec,
 }
+
+/// Represents a tar archive to be downloaded and extracted.
+pub type TarItems = std::collections::HashMap<std::path::PathBuf, Vec<std::path::PathBuf>>;

@@ -98,37 +98,21 @@ fetch_source::try_parse_toml(cargo_toml)?.into_par_iter()
 //!
 //! # Declaring sources
 //!
-//! The keys in the `package.metadata.fetch-source` table name a remote source. They can include
-//! any path character and zero or more `::` sub-name separators. Each `::`-separated component of a
-//! name maps to a subdirectory of the output directory.
-//!
-//! Each value in the `package.metadata.fetch-source` table must be a table which identifies the
-//! remote source it represents:
-//!
-//! **Tar archives**
-//! - The `tar` key gives the URL of the archive.
-//!
-//! **Git repos**
-//! - The `git` key gives the SSH or HTTPS upstream URL.
-//! - Any one of the `branch`/`tag`/`rev` keys indicates what to clone. The default is to clone the
-//!   default branch.
-//! - Use `recursive = true` to recursively clone submodules.
-//! - All clones are shallow, i.e. with a depth of 1.
-//!
-
 mod cache;
 mod error;
-pub mod git;
-pub mod source;
+mod git;
+mod source;
 #[cfg(feature = "tar")]
-pub mod tar;
+mod tar;
 
-#[doc(inline)]
-pub use crate::cache::*;
-#[doc(inline)]
-pub use crate::error::Error;
-#[doc(inline)]
-pub use crate::source::*;
+pub use cache::{Cache, CachedSources, MaybeCachedSource};
+pub use error::{CacheEntryNotFound, Error};
+pub use git::Git;
+pub use source::{
+    try_parse_toml, Artefact, Source, SourceArtefact, SourceParseError, Sources,
+};
+#[cfg(feature = "tar")]
+pub use tar::Tar;
 
 /// Convenience function to load sources from `Cargo.toml` in the given directory
 pub fn load_sources<P: AsRef<std::path::Path>>(path: P) -> Result<Sources, Error> {

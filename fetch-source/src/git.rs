@@ -27,7 +27,7 @@ pub struct GitSpec {
 }
 
 /// Represents a git repo cloned according to a source definition
-#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq, Clone)]
 pub struct GitArtefact {
     pub local: std::path::PathBuf,
     pub remote: GitSpec,
@@ -117,6 +117,17 @@ impl Git {
             .stderr(std::process::Stdio::piped())
             .stdin(std::process::Stdio::null());
         git
+    }
+
+    /// A name for this repository, derived from the URL.
+    ///
+    /// This is a bit of a hack, but it's the best we can do without a name field.
+    /// We take the last component of the URL path, and strip off any extension.
+    pub fn name(&self) -> &str {
+        let path = std::path::Path::new(&self.spec.url);
+        path.file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
     }
 }
 

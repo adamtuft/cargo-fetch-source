@@ -83,20 +83,36 @@ fn fetch_sources(
         unsafe { std::env::set_var("RAYON_NUM_THREADS", format!("{threads}")) };
     }
 
-    // Fetch sources then fold the fetched sources into the cache. Accumulate any errors.
-    let errors = parallel_fetch_uncached(cache.into_cached_sources(sources), out_dir)
-        .into_iter()
-        .fold(Vec::new(), |mut errors, result| {
-            match result {
-                Ok(artefact) => {
-                    cache.insert(artefact);
-                }
-                Err(err) => {
-                    errors.push(err);
-                }
-            }
-            errors
-        });
+    let cached_sources = cache.into_cached_sources(sources.clone());
+    let fetch_results = parallel_fetch_uncached(&cached_sources, &cache);
+
+    let mut errors = Vec::new();
+    let mut fetched_artefacts = Vec::new();
+    for result in fetch_results {
+        match result {
+            Ok(artefact) => fetched_artefacts.push(artefact),
+            Err(err) => errors.push(err),
+        }
+    }
+
+    for artefact in fetched_artefacts {
+        cache.insert(artefact);
+    }
+
+    // Copy all cached sources to the output directory
+    for (name, source) in &sources {
+        let digest = fetch_source::Cache::digest(source);
+        let artefact_path = cache.artefact_path(&digest);
+        if artefact_path.is_dir() {
+            dircpy::copy_dir(artefact_path, &out_dir)
+                .map_err(|err| AppError::Cache(format!("failed to copy to output dir"), err.into()))?;
+        } else {
+            return Err(AppError::Cache(
+                format!("artefact for digest {digest} not found"),
+                fetch_source::CacheEntryNotFound { digest }.into(),
+            ));
+        }
+    }
 
     cache.save().map_err(|err| {
         AppError::Cache(

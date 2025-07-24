@@ -1,4 +1,4 @@
-use fetch_source::{Artefact, CachedSources, MaybeCachedSource, SourceArtefact, Sources};
+use fetch_source::{Artefact, CachedSources, MaybeCachedSource, SourceArtefact};
 
 use MaybeCachedSource::*;
 
@@ -47,30 +47,27 @@ fn format_cached(name: &str) -> (ProgressStyle, String) {
 }
 
 // Fetch a single source, reporting progress in the provided progress bar
-fn fetch_one<S, P>(
-    name: S,
+fn fetch_one(
+    name: &str,
     source: MaybeCachedSource<'_>,
-    out_dir: P,
+    cache: &fetch_source::Cache,
     bar: ProgressBar,
-) -> Option<FetchResult>
-where
-    S: AsRef<str>,
-    P: AsRef<std::path::Path>,
-{
+) -> Option<FetchResult> {
     bar.enable_steady_tick(std::time::Duration::from_millis(120));
     match source {
         Cached(_, _) => {
-            let (style, message) = format_cached(name.as_ref());
+            let (style, message) = format_cached(name);
             bar.set_style(style);
             bar.finish_with_message(message);
             None
         }
         NotCached(source) => {
-            bar.set_message(format!("⏳  {} -> ", name.as_ref()));
-            let result = source.fetch(name.as_ref(), &out_dir);
+            bar.set_message(format!("⏳  {name} -> "));
+            let digest = fetch_source::Cache::digest(&source);
+            let result = source.fetch(name, &cache.artefact_path(&digest));
             let (style, message) = match &result {
-                Ok(artefact) => format_success(name.as_ref(), artefact),
-                Err(_) => format_failure(name.as_ref()),
+                Ok(artefact) => format_success(name, artefact),
+                Err(_) => format_failure(name),
             };
             bar.set_style(style);
             bar.finish_with_message(message);
@@ -81,55 +78,23 @@ where
 
 // Fetch all sources in parallel with `rayon`. Pair each source with its own progress bar. Using
 // ordered bars means the bars are shown in order
-pub fn parallel_fetch<P>(sources: Sources, out_dir: P) -> Vec<FetchResult>
-where
-    P: AsRef<std::path::Path> + Sync,
-{
+pub fn parallel_fetch_uncached(
+    sources: &CachedSources<'_, String>,
+    cache: &fetch_source::Cache,
+) -> Vec<FetchResult> {
     use rayon::prelude::*;
     let count = sources.len();
     let mp = MultiProgress::new();
     let make_bar = progress_bar_cb(&mp);
-    (0..count)
-        .zip(sources)
+    sources
+        .iter()
+        .enumerate()
         // Have to `collect()` first because we can't use parallel iterator with Zip
         .collect::<Vec<_>>()
         .into_par_iter()
         .filter_map(|(k, (name, source))| {
-            fetch_one(
-                name,
-                NotCached(source),
-                out_dir.as_ref(),
-                make_bar(format!("[{}/{count}]", k + 1)),
-            )
+            let bar = make_bar(format!("[{}/{}]", k + 1, count));
+            fetch_one(name, source.clone(), cache, bar)
         })
-        .collect::<Vec<_>>()
-}
-
-// Same as `parallel_fetch`, but only fetches sources that are not cached.
-pub fn parallel_fetch_uncached<'a, P, S>(
-    sources: CachedSources<'a, S>,
-    out_dir: P,
-) -> Vec<FetchResult>
-where
-    P: AsRef<std::path::Path> + Sync,
-    S: AsRef<str> + Sync + Send,
-{
-    use rayon::prelude::*;
-    let count = sources.len();
-    let mp = MultiProgress::new();
-    let make_bar = progress_bar_cb(&mp);
-    (0..count)
-        .zip(sources)
-        // Have to `collect()` first because we can't use parallel iterator with Zip
-        .collect::<Vec<_>>()
-        .into_par_iter()
-        .filter_map(|(k, (name, maybe_cached_source))| {
-            fetch_one(
-                name,
-                maybe_cached_source,
-                out_dir.as_ref(),
-                make_bar(format!("[{}/{count}]", k + 1)),
-            )
-        })
-        .collect::<Vec<_>>()
+        .collect()
 }

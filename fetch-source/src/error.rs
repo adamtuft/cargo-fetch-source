@@ -25,9 +25,21 @@ impl Error {
     }
 }
 
+
+
+/// A required entry was not found in the cache
+#[derive(Debug, thiserror::Error)]
+#[error("cache entry for digest '{digest}' not found")]
+pub struct CacheEntryNotFound {
+    pub digest: String,
+}
+
 /// Internal error categories.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ErrorKind {
+    #[error(transparent)]
+    CacheEntryNotFound(#[from] CacheEntryNotFound),
+
     #[error(transparent)]
     Io(#[from] std::io::Error),
 

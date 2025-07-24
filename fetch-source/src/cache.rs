@@ -15,6 +15,24 @@ pub enum MaybeCachedSource<'cache> {
     NotCached(Source),
 }
 
+impl<'a> Clone for MaybeCachedSource<'a> {
+    fn clone(&self) -> Self {
+        match self {
+            MaybeCachedSource::Cached(s, a) => MaybeCachedSource::Cached(s.clone(), a.clone()),
+            MaybeCachedSource::NotCached(s) => MaybeCachedSource::NotCached(s.clone()),
+        }
+    }
+}
+
+impl<'a> MaybeCachedSource<'a> {
+    pub fn source(&self) -> &Source {
+        match self {
+            MaybeCachedSource::Cached(s, _) => s,
+            MaybeCachedSource::NotCached(s) => s,
+        }
+    }
+}
+
 /// The cache is a collection of cached artefacts, indexed by their source's digest.
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 pub struct Cache {
@@ -36,8 +54,31 @@ impl Cache {
         }
     }
 
+    /// Get the cache file path.
+    pub fn cache_file(&self) -> &std::path::Path {
+        &self.cache_file
+    }
+
+    /// Get the directory of the cache file
+    pub fn cache_dir(&self) -> &std::path::Path {
+        self.cache_file.parent().unwrap()
+    }
+
+    /// Get the path to a cached artefact
+    pub fn artefact_path(&self, digest: &str) -> std::path::PathBuf {
+        self.cache_dir().join(digest)
+    }
+
+    /// Get the digest of a source
+    pub fn digest(source: &Source) -> String {
+        __digest__(source)
+    }
+
     /// Tag cached sources with a reference to their cached artefact.
-    pub fn into_cached_sources<'cache, 'src, S, K>(&'cache self, sources: S) -> CachedSources<'cache, K>
+    pub fn into_cached_sources<'cache, 'src, S, K>(
+        &'cache self,
+        sources: S,
+    ) -> CachedSources<'cache, K>
     where
         S: IntoIterator<Item = (K, Source)>,
         'src: 'cache,
@@ -45,13 +86,15 @@ impl Cache {
     {
         sources
             .into_iter()
-            .map(|(key, source)| (key, self.get(source)))
+            .map(|(key, source)| {
+                let maybe_cached = if let Some(artefact) = self.get(&source) {
+                    MaybeCachedSource::Cached(source, artefact)
+                } else {
+                    MaybeCachedSource::NotCached(source)
+                };
+                (key, maybe_cached)
+            })
             .collect()
-    }
-
-    /// Get the cache file path.
-    pub fn cache_file(&self) -> &std::path::Path {
-        &self.cache_file
     }
 
     /// Loads the cache from a JSON file in the given directory, creating a new cache if the file does not exist.
@@ -87,28 +130,25 @@ impl Cache {
 
     /// Inserts a new value into the cache, replacing any existing value with the same source digest.
     pub fn insert(&mut self, artefact: SourceArtefact) {
-        self.map.insert(__digest__(artefact.source()), artefact);
+        self.map.insert(Self::digest(artefact.source()), artefact);
     }
 
     /// Check whether the cache contains the given source.
     pub fn is_cached(&self, source: &Source) -> bool {
-        self.map.contains_key(&__digest__(source))
+        self.map.contains_key(&Self::digest(source))
     }
 
     /// Retrieves a cached value for the given source, if it exists.
-    pub fn get<'cache, 'src>(&'cache self, source: Source) -> MaybeCachedSource<'cache>
+    pub fn get<'cache, 'src>(&'cache self, source: &Source) -> Option<&'cache SourceArtefact>
     where
         'src: 'cache,
     {
-        match self.map.get(&__digest__(&source)) {
-            Some(artefact) => MaybeCachedSource::Cached(source, artefact),
-            None => MaybeCachedSource::NotCached(source),
-        }
+        self.map.get(&Self::digest(source))
     }
 
     /// Removes a cached value for the given source, returning it if it existed.
     pub fn remove(&mut self, source: &Source) -> Option<SourceArtefact> {
-        self.map.remove(&__digest__(source))
+        self.map.remove(&Self::digest(source))
     }
 
     /// Returns an iterator over the cached values.
