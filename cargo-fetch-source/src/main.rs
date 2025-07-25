@@ -104,8 +104,9 @@ fn fetch_sources(
         let digest = fetch_source::Cache::digest(source);
         let artefact_path = cache.artefact_path(&digest);
         if artefact_path.is_dir() {
-            dircpy::copy_dir(artefact_path, &out_dir)
-                .map_err(|err| AppError::Cache(format!("failed to copy to output dir"), err.into()))?;
+            dircpy::copy_dir(artefact_path, &out_dir).map_err(|err| {
+                AppError::Cache(format!("failed to copy to output dir"), err.into())
+            })?;
         } else {
             return Err(AppError::Cache(
                 format!("artefact for digest {digest} not found"),

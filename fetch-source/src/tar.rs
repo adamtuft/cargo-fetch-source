@@ -39,7 +39,6 @@ impl Tar {
             remote: self.spec.clone(),
         }))
     }
-
 }
 
 impl std::fmt::Display for Tar {

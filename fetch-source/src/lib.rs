@@ -127,7 +127,7 @@ pub use cache::{Cache, CachedSources, MaybeCachedSource};
 pub use error::{CacheEntryNotFound, Error};
 pub use git::Git;
 pub use source::{
-    try_parse_toml, Artefact, Source, SourceArtefact, SourceParseError, SourcesTable,
+    Artefact, Source, SourceArtefact, SourceParseError, SourcesTable, try_parse_toml,
 };
 #[cfg(feature = "tar")]
 pub use tar::Tar;

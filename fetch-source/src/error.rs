@@ -25,8 +25,6 @@ impl Error {
     }
 }
 
-
-
 /// A required entry was not found in the cache
 #[derive(Debug, thiserror::Error)]
 #[error("cache entry for digest '{digest}' not found")]

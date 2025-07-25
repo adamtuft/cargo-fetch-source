@@ -152,7 +152,10 @@ impl Source {
         })
     }
 
-    fn enforce_one_valid_variant<S: ToString>(name: S, source: &toml::Table) -> Result<SourceVariant, SourceParseError> {
+    fn enforce_one_valid_variant<S: ToString>(
+        name: S,
+        source: &toml::Table,
+    ) -> Result<SourceVariant, SourceParseError> {
         let mut detected_variant = None;
         for key in source.keys() {
             if let Some(variant) = SourceVariant::from(key) {
@@ -187,7 +190,7 @@ impl Source {
 /// Represents the contents of the `package.metadata.fetch-source` table in a `Cargo.toml` file.
 pub type SourcesTable = std::collections::HashMap<String, Source>;
 
-/// Parse a `package.metadata.fetch-source` table into a [`Sources`](crate::source::Sources) map
+/// Parse a `package.metadata.fetch-source` table into a [`SourcesTable`](crate::source::SourcesTable) map
 pub fn try_parse(table: &toml::Table) -> Result<SourcesTable, SourceParseError> {
     table
         .iter()
@@ -199,7 +202,7 @@ pub fn try_parse(table: &toml::Table) -> Result<SourcesTable, SourceParseError> 
 }
 
 /// Parse the contents of a Cargo.toml file containing the `package.metadata.fetch-source` table
-/// into a [`Sources`](crate::source::Sources) map.
+/// into a [`SourcesTable`](crate::source::SourcesTable) map.
 pub fn try_parse_toml<S: AsRef<str>>(toml_str: S) -> Result<SourcesTable, SourceParseError> {
     let table = toml_str.as_ref().parse::<toml::Table>()?;
     let sources_table = table
@@ -211,14 +214,6 @@ pub fn try_parse_toml<S: AsRef<str>>(toml_str: S) -> Result<SourcesTable, Source
     try_parse(sources_table)
 }
 
-/// Construct a `Source` from a TOML table literal.
-#[macro_export]
-macro_rules! source {
-    ($name:expr, $($toml:tt)+) => {{
-        $crate::Source::parse($name, toml::toml! { $($toml)+ })
-    }};
-}
-
 #[cfg(test)]
 use SourceParseError::*;
 
@@ -226,32 +221,40 @@ use SourceParseError::*;
 mod test_parsing_single_source_value {
     use super::*;
 
+    /// Construct a `Source` from a TOML table literal. Convenience macro used in testing.
+    #[macro_export]
+    macro_rules! source {
+        ($name:expr, $($toml:tt)+) => {{
+            $crate::Source::parse($name, toml::toml! { $($toml)+ })
+        }};
+    }
+
     #[test]
     fn parse_good_git_source() {
-        let table = toml::toml! {
+        let source = source! {
+            "src",
             git = "git@github.com:foo/bar.git"
         };
-        let source = Source::parse("src", table);
         assert!(source.is_ok());
     }
 
     #[cfg(feature = "tar")]
     #[test]
     fn parse_good_tar_source() {
-        let table = toml::toml! {
+        let source = source! {
+            "src",
             tar = "https://example.com/foo.tar.gz"
         };
-        let source = Source::parse("src", table);
         assert!(source.is_ok());
     }
 
     #[cfg(not(feature = "tar"))]
     #[test]
     fn parse_good_tar_source_fails_when_feature_disabled() {
-        let table = toml::toml! {
+        let source = source! {
+            "src",
             tar = "https://example.com/foo.tar.gz"
         };
-        let source = Source::parse("src", table);
         assert!(
             matches!(source, Err(VariantDisabled { source_name, variant, requires })
                 if source_name == "src" && variant == "tar" && requires == "tar"
@@ -261,11 +264,11 @@ mod test_parsing_single_source_value {
 
     #[test]
     fn parse_multiple_types_fails() {
-        let table = toml::toml! {
+        let source = source! {
+            "src",
             tar = "https://example.com/foo.tar.gz"
             git = "git@github.com:foo/bar.git"
         };
-        let source = Source::parse("src", table);
         assert!(matches!(source, Err(VariantMultiple { source_name })
             if source_name == "src"
         ));
@@ -273,10 +276,10 @@ mod test_parsing_single_source_value {
 
     #[test]
     fn parse_missing_type_fails() {
-        let table = toml::toml! {
+        let source = source! {
+            "src",
             foo = "git@github.com:foo/bar.git"
         };
-        let source = Source::parse("src", table);
         assert!(matches!(source, Err(VariantUnknown { source_name })
             if source_name == "src"
         ));
