@@ -9,11 +9,11 @@ use super::tar::{Tar, TarArtefact};
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum SourceParseError {
     /// An unknown source variant was encountered.
-    #[error("expected a valid source type for source '{source_name}': expected one of: {known}", known = SourceVariant::known().iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", "))]
+    #[error("expected a valid source type for source '{source_name}': expected one of: {known}", known = SOURCE_VARIANTS.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", "))]
     VariantUnknown { source_name: String },
 
     /// A source has multiple variants given.
-    #[error("multiple source types for source '{source_name}': expected exactly one of: {known}", known = SourceVariant::known().iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", "))]
+    #[error("multiple source types for source '{source_name}': expected exactly one of: {known}", known = SOURCE_VARIANTS.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", "))]
     VariantMultiple { source_name: String },
 
     /// A source has a variant which depends on a disabled feature.
@@ -71,51 +71,14 @@ pub enum Artefact {
     Git(GitArtefact),
 }
 
-impl Artefact {
-    /// Get the path to the artefact
-    pub fn path(&self) -> &std::path::Path {
-        match self {
-            #[cfg(feature = "tar")]
-            Artefact::Tar(tar) => &tar.path,
-            Artefact::Git(git) => &git.local,
-        }
-    }
-
-    /// Consume the artefact to get its path
-    pub fn into_path(self) -> std::path::PathBuf {
-        match self {
-            #[cfg(feature = "tar")]
-            Artefact::Tar(tar) => tar.path,
-            Artefact::Git(git) => git.local,
-        }
-    }
-
-    /// Get the tar variant, if this is a tar artefact.
-    #[cfg(feature = "tar")]
-    pub fn as_tar(&self) -> Option<&TarArtefact> {
-        if let Artefact::Tar(tar) = self {
-            Some(tar)
-        } else {
-            None
-        }
-    }
-
-    /// Get the git variant, if this is a git artefact.
-    pub fn as_git(&self) -> Option<&GitArtefact> {
-        if let Artefact::Git(git) = self {
-            Some(git)
-        } else {
-            None
-        }
-    }
-}
-
 /// Allowed source variants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum SourceVariant {
     Tar,
     Git,
 }
+
+const SOURCE_VARIANTS: &[SourceVariant] = &[SourceVariant::Tar, SourceVariant::Git];
 
 impl std::fmt::Display for SourceVariant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -127,8 +90,6 @@ impl std::fmt::Display for SourceVariant {
 }
 
 impl SourceVariant {
-    /// If 'name' is a known source variant, returns the corresponding enum variant.
-    /// Otherwise, returns None.
     fn from<S: AsRef<str>>(name: S) -> Option<Self> {
         match name.as_ref() {
             "tar" => Some(Self::Tar),
@@ -137,13 +98,6 @@ impl SourceVariant {
         }
     }
 
-    const fn known() -> &'static [SourceVariant] {
-        const KNOWN: &[SourceVariant] = &[SourceVariant::Tar, SourceVariant::Git];
-        KNOWN
-    }
-
-    /// True if the feature for the given source variant is enabled. Defaults to
-    /// true for variants not controlled by a feature flag.
     fn is_enabled(&self) -> bool {
         match self {
             Self::Tar => cfg!(feature = "tar"),
@@ -151,7 +105,6 @@ impl SourceVariant {
         }
     }
 
-    /// Get the feature (if any) required for the source variant.
     fn feature(&self) -> Option<&'static str> {
         match self {
             Self::Tar => Some("tar"),
@@ -199,63 +152,34 @@ impl Source {
         })
     }
 
-    /// The upstream URL (i.e. git repo or archive link).
-    pub fn upstream(&self) -> &str {
-        match self {
-            #[cfg(feature = "tar")]
-            Source::Tar(tar) => tar.upstream(),
-            Source::Git(git) => git.upstream(),
+    fn enforce_one_valid_variant<S: ToString>(name: S, source: &toml::Table) -> Result<SourceVariant, SourceParseError> {
+        let mut detected_variant = None;
+        for key in source.keys() {
+            if let Some(variant) = SourceVariant::from(key) {
+                if detected_variant.is_some() {
+                    return Err(SourceParseError::VariantMultiple {
+                        source_name: name.to_string(),
+                    });
+                }
+                if !variant.is_enabled() {
+                    return Err(SourceParseError::VariantDisabled {
+                        source_name: name.to_string(),
+                        variant: variant.to_string(),
+                        requires: variant.feature().unwrap_or("?").to_string(),
+                    });
+                }
+                detected_variant = Some(variant);
+            }
         }
-    }
-
-    /// Get a reference to the inner tar source, if it is one.
-    #[cfg(feature = "tar")]
-    pub fn as_tar(&self) -> Option<&Tar> {
-        if let Source::Tar(s) = self {
-            Some(s)
-        } else {
-            None
-        }
-    }
-
-    /// Get a reference to the inner git source, if it is one.
-    pub fn as_git(&self) -> Option<&Git> {
-        if let Source::Git(s) = self {
-            Some(s)
-        } else {
-            None
-        }
+        detected_variant.ok_or(SourceParseError::VariantUnknown {
+            source_name: name.to_string(),
+        })
     }
 
     /// Parse a TOML table into a `Source` instance. Exactly one key in the table must identify
     /// a valid, enabled source type, otherwise an error is returned.
     pub fn parse<S: ToString>(name: S, source: toml::Table) -> Result<Self, SourceParseError> {
-        let mut detected_variant = None;
-        for key in source.keys() {
-            match SourceVariant::from(key) {
-                None => continue,
-                Some(variant) => {
-                    if detected_variant.is_some() {
-                        return Err(SourceParseError::VariantMultiple {
-                            source_name: name.to_string(),
-                        });
-                    } else if !variant.is_enabled() {
-                        return Err(SourceParseError::VariantDisabled {
-                            source_name: name.to_string(),
-                            variant: variant.to_string(),
-                            requires: variant.feature().unwrap_or("?").to_string(),
-                        });
-                    } else {
-                        detected_variant = Some(variant);
-                    }
-                }
-            };
-        }
-        if detected_variant.is_none() {
-            return Err(SourceParseError::VariantUnknown {
-                source_name: name.to_string(),
-            });
-        }
+        Self::enforce_one_valid_variant(name, &source)?;
         Ok(source.try_into()?)
     }
 }
