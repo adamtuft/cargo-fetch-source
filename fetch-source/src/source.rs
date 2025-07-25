@@ -261,10 +261,10 @@ impl Source {
 }
 
 /// Represents the contents of the `package.metadata.fetch-source` table in a `Cargo.toml` file.
-pub type Sources = std::collections::HashMap<String, Source>;
+pub type SourcesTable = std::collections::HashMap<String, Source>;
 
 /// Parse a `package.metadata.fetch-source` table into a [`Sources`](crate::source::Sources) map
-pub fn try_parse(table: &toml::Table) -> Result<Sources, SourceParseError> {
+pub fn try_parse(table: &toml::Table) -> Result<SourcesTable, SourceParseError> {
     table
         .iter()
         .map(|(k, v)| match v.as_table() {
@@ -276,7 +276,7 @@ pub fn try_parse(table: &toml::Table) -> Result<Sources, SourceParseError> {
 
 /// Parse the contents of a Cargo.toml file containing the `package.metadata.fetch-source` table
 /// into a [`Sources`](crate::source::Sources) map.
-pub fn try_parse_toml<S: AsRef<str>>(toml_str: S) -> Result<Sources, SourceParseError> {
+pub fn try_parse_toml<S: AsRef<str>>(toml_str: S) -> Result<SourcesTable, SourceParseError> {
     let table = toml_str.as_ref().parse::<toml::Table>()?;
     let sources_table = table
         .get("package")

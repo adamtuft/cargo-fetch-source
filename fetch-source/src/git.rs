@@ -118,17 +118,6 @@ impl Git {
             .stdin(std::process::Stdio::null());
         git
     }
-
-    /// A name for this repository, derived from the URL.
-    ///
-    /// This is a bit of a hack, but it's the best we can do without a name field.
-    /// We take the last component of the URL path, and strip off any extension.
-    pub fn name(&self) -> &str {
-        let path = std::path::Path::new(&self.spec.url);
-        path.file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown")
-    }
 }
 
 impl std::fmt::Display for Git {

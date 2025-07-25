@@ -19,7 +19,7 @@ fn main() -> std::process::ExitCode {
     }
 }
 
-fn sources(manifest_file: &std::path::Path) -> Result<fetch_source::Sources, error::AppError> {
+fn sources(manifest_file: &std::path::Path) -> Result<fetch_source::SourcesTable, error::AppError> {
     let document =
         std::fs::read_to_string(manifest_file).map_err(|err| AppError::ManifestRead {
             manifest: format!("{}", manifest_file.display()),
@@ -73,7 +73,7 @@ fn fetch(
 // Fetch all sources and return any errors that occurred during fetching.
 // Update the cache with any successfully fetched artefacts.
 fn fetch_sources(
-    sources: fetch_source::Sources,
+    sources: fetch_source::SourcesTable,
     out_dir: &std::path::Path,
     mut cache: fetch_source::Cache,
     threads: Option<u32>,
@@ -151,7 +151,7 @@ fn report_fetch_results(errors: Vec<anyhow::Error>, num_sources: usize) {
 }
 
 // List all sources in the chosen format
-fn list(sources: fetch_source::Sources, format: Option<OutputFormat>) -> Result<(), AppError> {
+fn list(sources: fetch_source::SourcesTable, format: Option<OutputFormat>) -> Result<(), AppError> {
     match format {
         Some(OutputFormat::Toml) => {
             // SAFETY: unwrap here because we only accept values that were previously deserialised

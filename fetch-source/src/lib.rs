@@ -98,6 +98,24 @@ fetch_source::try_parse_toml(cargo_toml)?.into_par_iter()
 //!
 //! # Declaring sources
 //!
+//! The keys in the `package.metadata.fetch-source` table name a remote source. They can include
+//! any path character and zero or more `::` sub-name separators. Each `::`-separated component of a
+//! name maps to a subdirectory of the output directory.
+//!
+//! Each value in the `package.metadata.fetch-source` table must be a table which identifies the
+//! remote source it represents:
+//!
+//! **Tar archives**
+//! - The `tar` key gives the URL of the archive.
+//!
+//! **Git repos**
+//! - The `git` key gives the SSH or HTTPS upstream URL.
+//! - Any one of the `branch`/`tag`/`rev` keys indicates what to clone. The default is to clone the
+//!   default branch.
+//! - Use `recursive = true` to recursively clone submodules.
+//! - All clones are shallow, i.e. with a depth of 1.
+//!
+
 mod cache;
 mod error;
 mod git;
@@ -109,13 +127,13 @@ pub use cache::{Cache, CachedSources, MaybeCachedSource};
 pub use error::{CacheEntryNotFound, Error};
 pub use git::Git;
 pub use source::{
-    try_parse_toml, Artefact, Source, SourceArtefact, SourceParseError, Sources,
+    try_parse_toml, Artefact, Source, SourceArtefact, SourceParseError, SourcesTable,
 };
 #[cfg(feature = "tar")]
 pub use tar::Tar;
 
 /// Convenience function to load sources from `Cargo.toml` in the given directory
-pub fn load_sources<P: AsRef<std::path::Path>>(path: P) -> Result<Sources, Error> {
+pub fn load_sources<P: AsRef<std::path::Path>>(path: P) -> Result<SourcesTable, Error> {
     Ok(try_parse_toml(&std::fs::read_to_string(
         path.as_ref().to_path_buf().join("Cargo.toml"),
     )?)?)
@@ -123,7 +141,7 @@ pub fn load_sources<P: AsRef<std::path::Path>>(path: P) -> Result<Sources, Error
 
 /// Convenience function to fetch all sources serially
 pub fn fetch_all<P: AsRef<std::path::Path>>(
-    sources: Sources,
+    sources: SourcesTable,
     out_dir: P,
 ) -> Vec<Result<SourceArtefact, crate::Error>> {
     sources
@@ -138,7 +156,7 @@ use rayon::prelude::*;
 #[cfg(feature = "rayon")]
 /// Convenience function to fetch all sources in parallel
 pub fn fetch_all_par<P: AsRef<std::path::Path> + Sync>(
-    sources: Sources,
+    sources: SourcesTable,
     out_dir: P,
 ) -> Vec<Result<SourceArtefact, crate::Error>> {
     sources
