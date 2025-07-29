@@ -6,7 +6,7 @@ use super::git::{Git, GitArtefact};
 use super::tar::{Tar, TarArtefact};
 
 /// Errors encountered when parsing sources from `Cargo.toml`
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error)]
 pub enum SourceParseError {
     /// An unknown source variant was encountered.
     #[error("expected a valid source type for source '{source_name}': expected one of: {known}", known = SOURCE_VARIANTS.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", "))]
@@ -35,6 +35,10 @@ pub enum SourceParseError {
     /// A toml deserialisation error occurred.
     #[error(transparent)]
     TomlInvalid(#[from] toml::de::Error),
+
+    /// A json error occurred.
+    #[error(transparent)]
+    JsonInvalid(#[from] serde_json::Error),
 }
 
 pub type FetchResult = Result<NamedSourceArtefact, crate::FetchError>;
@@ -42,7 +46,7 @@ pub type FetchResult = Result<NamedSourceArtefact, crate::FetchError>;
 /// Represents a source artefact with the name it is known by. Note that a source may be known by
 /// multiple names, so the name is not an intrinsic property of the SourceArtefact.
 /// Fields are public as this type is intended to be easily moved-from.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 pub struct NamedSourceArtefact {
     pub artefact: SourceArtefact,
     pub name: String,
@@ -209,7 +213,7 @@ impl Source {
     /// a valid, enabled source type, otherwise an error is returned.
     pub fn parse<S: ToString>(name: S, source: toml::Table) -> Result<Self, SourceParseError> {
         Self::enforce_one_valid_variant(name, &source)?;
-        Ok(source.try_into()?)
+        Ok(toml::Value::Table(source).try_into::<Self>()?)
     }
 }
 
@@ -246,20 +250,13 @@ use SourceParseError::*;
 #[cfg(test)]
 mod test_parsing_single_source_value {
     use super::*;
-
-    /// Construct a `Source` from a TOML table literal. Convenience macro used in testing.
-    #[macro_export]
-    macro_rules! source {
-        ($name:expr, $($toml:tt)+) => {{
-            $crate::Source::parse($name, toml::toml! { $($toml)+ })
-        }};
-    }
+    use crate::build_from_json;
 
     #[test]
     fn parse_good_git_source() {
-        let source = source! {
-            "src",
-            git = "git@github.com:foo/bar.git"
+        let source = build_from_json! {
+            Source,
+            "git": "git@github.com:foo/bar.git"
         };
         assert!(source.is_ok());
     }
@@ -267,9 +264,9 @@ mod test_parsing_single_source_value {
     #[cfg(feature = "tar")]
     #[test]
     fn parse_good_tar_source() {
-        let source = source! {
-            "src",
-            tar = "https://example.com/foo.tar.gz"
+        let source = build_from_json! {
+            Source,
+            "tar": "https://example.com/foo.tar.gz"
         };
         assert!(source.is_ok());
     }
@@ -277,9 +274,9 @@ mod test_parsing_single_source_value {
     #[cfg(not(feature = "tar"))]
     #[test]
     fn parse_good_tar_source_fails_when_feature_disabled() {
-        let source = source! {
-            "src",
-            tar = "https://example.com/foo.tar.gz"
+        let source = build_from_json! {
+            Source,
+            "tar": "https://example.com/foo.tar.gz"
         };
         assert!(
             matches!(source, Err(VariantDisabled { source_name, variant, requires })
@@ -290,11 +287,14 @@ mod test_parsing_single_source_value {
 
     #[test]
     fn parse_multiple_types_fails() {
-        let source = source! {
+        // NOTE: this test explicitly tests failure modes of Source::parse
+        let source = Source::parse(
             "src",
-            tar = "https://example.com/foo.tar.gz"
-            git = "git@github.com:foo/bar.git"
-        };
+            toml::toml! {
+                tar = "https://example.com/foo.tar.gz"
+                git = "git@github.com:foo/bar.git"
+            },
+        );
         assert!(matches!(source, Err(VariantMultiple { source_name })
             if source_name == "src"
         ));
@@ -302,10 +302,13 @@ mod test_parsing_single_source_value {
 
     #[test]
     fn parse_missing_type_fails() {
-        let source = source! {
+        // NOTE: this test explicitly tests failure modes of Source::parse
+        let source = Source::parse(
             "src",
-            foo = "git@github.com:foo/bar.git"
-        };
+            toml::toml! {
+                foo = "git@github.com:foo/bar.git"
+            },
+        );
         assert!(matches!(source, Err(VariantUnknown { source_name })
             if source_name == "src"
         ));
@@ -333,7 +336,7 @@ mod test_parsing_sources_table_failure_modes {
             foo = { git = "git@github.com:foo/bar.git" }
             bar = { tar = "https://example.com/foo.tar.gz" }
         "#;
-        assert_eq!(try_parse_toml(document), Err(SourceTableNotFound));
+        assert!(matches!(try_parse_toml(document), Err(SourceTableNotFound)));
     }
 
     #[test]
@@ -345,12 +348,10 @@ mod test_parsing_sources_table_failure_modes {
             [package.metadata.fetch-source]
             not-a-table = "actually a string"
         "#;
-        assert_eq!(
+        assert!(matches!(
             try_parse_toml(document),
-            Err(ValueNotTable {
-                name: "not-a-table".to_string()
-            })
-        );
+            Err(ValueNotTable { name }) if name == "not-a-table"
+        ));
     }
 
     #[cfg(not(feature = "tar"))]
@@ -363,14 +364,14 @@ mod test_parsing_sources_table_failure_modes {
             [package.metadata.fetch-source]
             bar = { tar = "https://example.com/foo.tar.gz" }
         "#;
-        assert_eq!(
+        assert!(matches!(
             try_parse_toml(document),
             Err(VariantDisabled {
-                source_name: "bar".to_string(),
-                variant: "tar".to_string(),
-                requires: "tar".to_string()
-            })
-        );
+                source_name,
+                variant,
+                requires,
+            }) if source_name == "bar" && variant == "tar" && requires == "tar"
+        ));
     }
 
     #[test]
@@ -382,12 +383,10 @@ mod test_parsing_sources_table_failure_modes {
             [package.metadata.fetch-source]
             bar = { tar = "https://example.com/foo.tar.gz", git = "git@github.com:foo/bar.git" }
         "#;
-        assert_eq!(
+        assert!(matches!(
             try_parse_toml(document),
-            Err(VariantMultiple {
-                source_name: "bar".to_string()
-            })
-        );
+            Err(VariantMultiple { source_name }) if source_name == "bar"
+        ));
     }
 
     #[test]
@@ -399,11 +398,9 @@ mod test_parsing_sources_table_failure_modes {
             [package.metadata.fetch-source]
             bar = { zim = "https://example.com/foo.tar.gz" }
         "#;
-        assert_eq!(
+        assert!(matches!(
             try_parse_toml(document),
-            Err(VariantUnknown {
-                source_name: "bar".to_string()
-            })
-        );
+            Err(VariantUnknown { source_name }) if source_name == "bar"
+        ));
     }
 }

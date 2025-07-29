@@ -60,7 +60,7 @@
 //!
 //! let out_dir = PathBuf::from(std::env::temp_dir());
 //! for err in fetch_source::try_parse_toml(cargo_toml)?.into_iter()
-//!     .map(|(name, source)| source.fetch(&name, &out_dir))
+//!     .map(|(name, source)| source.fetch(name, &out_dir))
 //!     .filter_map(Result::err) {
 //!     eprintln!("{err}");
 //! }
@@ -87,7 +87,7 @@ let cargo_toml = r#"
 
 let out_dir = PathBuf::from(std::env::temp_dir());
 fetch_source::try_parse_toml(cargo_toml)?.into_par_iter()
-    .map(|(name, source)| source.fetch(&name, &out_dir))
+    .map(|(name, source)| source.fetch(name, &out_dir))
     .filter_map(Result::err)
     .for_each(|err| eprintln!("{err}"));
 # Ok(())
@@ -164,4 +164,29 @@ pub fn fetch_all_par<P: AsRef<std::path::Path> + Sync>(
         .into_par_iter()
         .map(|(name, source)| source.fetch(name, out_dir.as_ref()))
         .collect::<Vec<_>>()
+}
+
+/// Convenience function to iterate over the artefacts in a cache (if any)
+pub fn iter_cached_artefacts<P: AsRef<std::path::Path>>(
+    cache_dir: P,
+) -> Result<impl Iterator<Item = SourceArtefact>, crate::Error> {
+    // Placeholder for future implementation
+    Ok(Cache::load(cache_dir)?
+        .into_iter()
+        .map(|(_, artefact)| artefact))
+}
+
+/// Construct a serde-compatible type from a JSON table literal. Useful in testing.
+#[cfg(test)]
+#[macro_export]
+macro_rules! build_from_json {
+    ($t:ty) => {{
+        serde_json::from_value::<$t>(serde_json::json! { { } }).map_err(crate::SourceParseError::from)
+    }};
+    ($t:ty, $($json:tt)+) => {{
+        serde_json::from_value::<$t>(serde_json::json! { { $($json)+ } }).map_err(crate::SourceParseError::from)
+    }};
+    ($($json:tt)*) => {{
+        serde_json::from_value(serde_json::json! { { $($json)* } }).map_err(crate::SourceParseError::from)
+    }};
 }

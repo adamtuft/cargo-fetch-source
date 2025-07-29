@@ -101,14 +101,8 @@ fn fetch_sources(
         // SAFETY: can unwrap because we just got all these digests from the cache, so we know
         // they are present
         let artefact = artefact.unwrap();
-        let artefact_path = cache.artefact_path(artefact.source());
-        let dest = out_dir.join(Source::as_path_component(name));
-        println!("{name}: COPY {artefact_path:#?} -> {dest:#?}");
-        if artefact_path.is_dir() {
-            dircpy::copy_dir(artefact_path, &dest).map_err(|err| {
-                AppError::Cache(format!("failed to copy to output dir"), err.into())
-            })?;
-        } else {
+        let cached_path = cache.cached_path(artefact.source());
+        if !cached_path.is_dir() {
             return Err(AppError::Cache(
                 format!("artefact for source '{name}' not found"),
                 fetch_source::CacheEntryNotFound {
@@ -117,6 +111,10 @@ fn fetch_sources(
                 .into(),
             ));
         }
+        let dest = out_dir.join(Source::as_path_component(name));
+        println!("{name}: COPY {cached_path:#?} -> {dest:#?}");
+        dircpy::copy_dir(cached_path, &dest)
+            .map_err(|err| AppError::Cache(format!("failed to copy to output dir"), err.into()))?;
     }
 
     Ok(errors)

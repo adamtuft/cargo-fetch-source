@@ -6,6 +6,7 @@ use crate::{NamedSourceArtefact, Source, SourceArtefact};
 const CACHE_FILE_NAME: &str = "fetch-source-cache.json";
 
 /// The digest associated with a particular named source
+#[derive(Debug, PartialEq, Eq)]
 pub struct NamedDigest {
     pub name: String,
     pub digest: String,
@@ -16,12 +17,6 @@ pub struct NamedFetchSpec {
     pub name: String,
     pub source: Source,
     pub path: std::path::PathBuf,
-}
-
-impl NamedFetchSpec {
-    pub fn into_fetch(self) -> impl FnOnce() -> crate::FetchResult {
-        move || self.source.fetch(self.name, self.path)
-    }
 }
 
 /// The cache is a collection of cached artefacts, indexed by their source's digest.
@@ -56,7 +51,7 @@ impl Cache {
     }
 
     /// Calculate the path which a fetched source would have within the cache
-    pub fn artefact_path(&self, source: &Source) -> std::path::PathBuf {
+    pub fn cached_path(&self, source: &Source) -> std::path::PathBuf {
         self.cache_dir().join(Self::digest(source))
     }
 
@@ -69,7 +64,7 @@ impl Cache {
     /// those which are missing (giving their fetch specifications)
     pub fn partition_by_status<S>(&self, sources: S) -> (Vec<NamedDigest>, Vec<NamedFetchSpec>)
     where
-        S: Iterator<Item = (String, Source)>
+        S: Iterator<Item = (String, Source)>,
     {
         sources.fold(
             (Vec::new(), Vec::new()),
@@ -78,12 +73,8 @@ impl Cache {
                 if self.map.contains_key(&digest) {
                     cached.push(NamedDigest { name, digest });
                 } else {
-                    let path = self.artefact_path(&source);
-                    missing.push(NamedFetchSpec {
-                        name,
-                        source,
-                        path,
-                    });
+                    let path = self.cached_path(&source);
+                    missing.push(NamedFetchSpec { name, source, path });
                 }
                 (cached, missing)
             },
@@ -91,7 +82,7 @@ impl Cache {
     }
 
     /// Fetch and insert missing sources. Fetched sources are consumed and become cached artefacts.
-    /// Return the digests of the cached source artefacts. Sources which couldn't be fetched are 
+    /// Return the digests of the cached source artefacts. Sources which couldn't be fetched are
     /// returned via errors.
     pub fn fetch_missing<F>(
         &mut self,
@@ -101,15 +92,16 @@ impl Cache {
     where
         F: FnOnce(Vec<NamedFetchSpec>) -> Vec<crate::FetchResult>,
     {
-        fetch(sources)
-            .into_iter()
-            .fold((Vec::new(), Vec::new()), |(mut cached, mut errors), result| {
+        fetch(sources).into_iter().fold(
+            (Vec::new(), Vec::new()),
+            |(mut cached, mut errors), result| {
                 match result {
                     Ok(artefact) => cached.push(self.insert(artefact)),
                     Err(error) => errors.push(error),
                 }
                 (cached, errors)
-            })
+            },
+        )
     }
 
     /// Loads the cache from a JSON file in the given directory, creating a new cache if the file
@@ -159,8 +151,7 @@ impl Cache {
     }
 
     /// Retrieves a cached value for the given source, if it exists.
-    pub fn get<'a>(&'a self, source: &Source) -> Option<&'a SourceArtefact>
-    {
+    pub fn get<'a>(&'a self, source: &Source) -> Option<&'a SourceArtefact> {
         self.map.get(&Self::digest(source))
     }
 
@@ -218,49 +209,53 @@ impl<'a> IntoIterator for &'a Cache {
 }
 
 #[cfg(test)]
-mod test_cache {
-    use directories::ProjectDirs;
-
+mod tests {
     use super::*;
 
-    #[test]
-    fn get_digest() {
-        let source = crate::source! {
-            "src",
-            tar = "https://example.com/foo.tar.gz"
-        }
-        .unwrap();
-        let json = serde_json::to_string(&source).unwrap();
-        let digest = __digest__(&source);
-        println!("Source: {json}");
-        println!("Digest: {digest}");
-    }
-
-    #[test]
-    fn get_cache_dir() {
-        let project_dirs = ProjectDirs::from("", "", "cargo-fetch-source").unwrap();
-        let cache_dir = project_dirs.cache_dir();
-        println!("Cache directory: {}", cache_dir.display());
-    }
-
-    #[test]
-    fn build_cache_from_json() {
-        let json = r#"
-        {
-            "d0f421a2f76d0a84d8f16f96f94d903a270c3b9b716384d6307f0a5046c6ff1a": {
-                "path": "/path/to/source",
-                "source": {
-                    "git": "git@github.com:foo/bar.git",
-                    "rev": "abcd1234"
-                }
+    macro_rules! mock_cache_at {
+        ($cache_file:expr) => {{
+            Cache {
+                map: BTreeMap::new(),
+                cache_file: std::path::PathBuf::from($cache_file).join(CACHE_FILE_NAME),
             }
-        }"#;
-        let cache: Cache = serde_json::from_str(json).unwrap();
-        println!("Cache: {cache:#?}");
-        assert_eq!(cache.map.len(), 1);
-        // Test iteration
-        for (k, v) in cache {
-            assert_eq!(k, __digest__(v.source()));
-        }
+        }};
+    }
+
+    #[test]
+    fn artefact_path_is_digest() {
+        // The cache should determine the path to a cached artefact relative to the cache directory,
+        // where the subdirectory is the digest of the source.
+        let cache = mock_cache_at! {"/foo/bar"};
+        let source: Source =
+            crate::build_from_json! { "tar": "www.example.com/test.tar.gz" }.unwrap();
+        assert_eq!(
+            std::path::PathBuf::from("/foo/bar/").join(Cache::digest(&source)),
+            cache.cached_path(&source)
+        );
+    }
+
+    #[test]
+    fn same_artefact_with_multiple_names_exists_once() {
+        let mut cache = mock_cache_at! {"/foo/bar"};
+        let named_artefact_1: crate::NamedSourceArtefact = crate::build_from_json! {
+            "name": "foo",
+            "artefact": {
+                "artefact": { "tar": { "path": "AAAAAAAA", "remote": { "tar": "www.example.com/test.tar.gz" } } },
+                "source": { "tar": "www.example.com/test.tar.gz" }
+            }
+        }.unwrap();
+        let named_artefact_2: crate::NamedSourceArtefact = crate::build_from_json! {
+            "name": "bar",
+            "artefact": {
+                "artefact": { "tar": { "path": "BBBBBBBB", "remote": { "tar": "www.example.com/test.tar.gz" } } },
+                "source": { "tar": "www.example.com/test.tar.gz" }
+            }
+        }.unwrap();
+        let named_digest_1 = cache.insert(named_artefact_1);
+        let named_digest_2 = cache.insert(named_artefact_2);
+        assert_eq!(cache.len(), 1);
+        assert_eq!(named_digest_1.name, "foo");
+        assert_eq!(named_digest_2.name, "bar");
+        assert_eq!(named_digest_1.digest, named_digest_2.digest); // But the same digest, due to having the same source
     }
 }
