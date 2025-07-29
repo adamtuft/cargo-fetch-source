@@ -79,7 +79,7 @@ impl SourceArtefact {
 }
 
 /// Represents the output produced when a [`Source`](crate::source::Source) is fetched.
-#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq, Clone)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 pub enum Artefact {
     #[cfg(feature = "tar")]
     #[serde(rename = "tar")]
@@ -89,7 +89,7 @@ pub enum Artefact {
 }
 
 /// Allowed source variants.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 enum SourceVariant {
     Tar,
     Git,
