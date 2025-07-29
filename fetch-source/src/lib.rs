@@ -123,11 +123,12 @@ mod source;
 #[cfg(feature = "tar")]
 mod tar;
 
-pub use cache::{Cache, CachedSources, MaybeCachedSource};
-pub use error::{CacheEntryNotFound, Error};
+pub use cache::Cache;
+pub use error::{CacheEntryNotFound, Error, FetchError};
 pub use git::Git;
 pub use source::{
-    Artefact, Source, SourceArtefact, SourceParseError, SourcesTable, try_parse_toml,
+    Artefact, FetchResult, NamedSourceArtefact, Source, SourceArtefact, SourceParseError,
+    SourcesTable, try_parse_toml,
 };
 #[cfg(feature = "tar")]
 pub use tar::Tar;
@@ -143,10 +144,10 @@ pub fn load_sources<P: AsRef<std::path::Path>>(path: P) -> Result<SourcesTable, 
 pub fn fetch_all<P: AsRef<std::path::Path>>(
     sources: SourcesTable,
     out_dir: P,
-) -> Vec<Result<SourceArtefact, crate::Error>> {
+) -> Vec<Result<NamedSourceArtefact, crate::FetchError>> {
     sources
         .into_iter()
-        .map(|(name, source)| source.fetch(&name, &out_dir))
+        .map(|(name, source)| source.fetch(name, &out_dir))
         .collect()
 }
 
@@ -158,9 +159,9 @@ use rayon::prelude::*;
 pub fn fetch_all_par<P: AsRef<std::path::Path> + Sync>(
     sources: SourcesTable,
     out_dir: P,
-) -> Vec<Result<SourceArtefact, crate::Error>> {
+) -> Vec<Result<NamedSourceArtefact, crate::FetchError>> {
     sources
         .into_par_iter()
-        .map(|(name, source)| source.fetch(&name, out_dir.as_ref()))
+        .map(|(name, source)| source.fetch(name, out_dir.as_ref()))
         .collect::<Vec<_>>()
 }

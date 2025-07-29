@@ -1,13 +1,32 @@
 //! Defines the error type for this crate.
 
-/// The main error type for this crate.
+/// Errors that occur during fetching
 #[derive(Debug, thiserror::Error)]
-#[error(transparent)]
-pub struct Error {
-    inner: ErrorKind,
+#[error("Failed to fetch source: {err}")]
+pub struct FetchError {
+    #[source]
+    pub err: FetchErrorInner,
+    pub name: String,
+    pub source: crate::Source,
 }
 
-impl Error {
+impl FetchError {
+    pub fn new(inner: FetchErrorInner, name: String, source: crate::Source) -> Self {
+        Self {
+            err: inner,
+            name,
+            source,
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct FetchErrorInner {
+    inner: FetchErrorKind,
+}
+
+impl FetchErrorInner {
     /// Manual constructor for a subprocess error. This exists because there's no lower error type
     /// to forward.
     pub(crate) fn subprocess(
@@ -16,7 +35,7 @@ impl Error {
         cause: anyhow::Error,
     ) -> Self {
         Self {
-            inner: ErrorKind::Subprocess {
+            inner: FetchErrorKind::Subprocess {
                 command,
                 status,
                 cause,
@@ -25,11 +44,49 @@ impl Error {
     }
 }
 
+/// Internal error categories.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum FetchErrorKind {
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+
+    #[cfg(feature = "reqwest")]
+    #[error(transparent)]
+    Reqwest(#[from] reqwest::Error),
+
+    #[error("Command '{command}' exited with status {status}")]
+    Subprocess {
+        command: String,
+        status: std::process::ExitStatus,
+        #[source]
+        cause: anyhow::Error,
+    },
+}
+
+// Blanket implementation for all variants of ErrorKind with a #[from] attribute
+impl<T> From<T> for FetchErrorInner
+where
+    FetchErrorKind: From<T>,
+{
+    fn from(e: T) -> Self {
+        Self {
+            inner: FetchErrorKind::from(e),
+        }
+    }
+}
+
+/// The main error type for this crate.
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct Error {
+    inner: ErrorKind,
+}
+
 /// A required entry was not found in the cache
 #[derive(Debug, thiserror::Error)]
-#[error("cache entry for digest '{digest}' not found")]
+#[error("cache entry for source '{name}' not found")]
 pub struct CacheEntryNotFound {
-    pub digest: String,
+    pub name: String,
 }
 
 /// Internal error categories.
@@ -53,14 +110,6 @@ pub(crate) enum ErrorKind {
 
     #[error(transparent)]
     Parse(#[from] crate::SourceParseError),
-
-    #[error("Command '{command}' exited with status {status}")]
-    Subprocess {
-        command: String,
-        status: std::process::ExitStatus,
-        #[source]
-        cause: anyhow::Error,
-    },
 }
 
 // Blanket implementation for all variants of ErrorKind with a #[from] attribute

@@ -1,4 +1,6 @@
-use crate::{error::AppError, fetch::parallel_fetch_uncached};
+use crate::{error::AppError, fetch::fetch_all_parallel};
+use fetch_source::Source;
+use std::error::Error;
 
 mod args;
 mod error;
@@ -77,43 +79,15 @@ fn fetch_sources(
     out_dir: &std::path::Path,
     mut cache: fetch_source::Cache,
     threads: Option<u32>,
-) -> Result<Vec<anyhow::Error>, AppError> {
+) -> Result<Vec<fetch_source::FetchError>, AppError> {
     if let Some(threads) = threads {
         // SAFETY: only called in a serial region before any other threads exist.
         unsafe { std::env::set_var("RAYON_NUM_THREADS", format!("{threads}")) };
     }
 
-    let cached_sources = cache.into_cached_sources(sources.clone());
-    let fetch_results = parallel_fetch_uncached(&cached_sources, &cache);
-
-    let mut errors = Vec::new();
-    let mut fetched_artefacts = Vec::new();
-    for result in fetch_results {
-        match result {
-            Ok(artefact) => fetched_artefacts.push(artefact),
-            Err(err) => errors.push(err),
-        }
-    }
-
-    for artefact in fetched_artefacts {
-        cache.insert(artefact);
-    }
-
-    // Copy all cached sources to the output directory
-    for (name, source) in &sources {
-        let digest = fetch_source::Cache::digest(source);
-        let artefact_path = cache.artefact_path(&digest);
-        if artefact_path.is_dir() {
-            dircpy::copy_dir(artefact_path, &out_dir).map_err(|err| {
-                AppError::Cache(format!("failed to copy to output dir"), err.into())
-            })?;
-        } else {
-            return Err(AppError::Cache(
-                format!("artefact for digest {digest} not found"),
-                fetch_source::CacheEntryNotFound { digest }.into(),
-            ));
-        }
-    }
+    // NOTE: If I just return a reference to the cached artefact in Cache::fetch_missing
+    //       then I still know which sources are now available after fetching missing sources.
+    let (cached, errors) = cache.fetch_missing(sources.into_iter(), fetch_all_parallel);
 
     cache.save().map_err(|err| {
         AppError::Cache(
@@ -122,11 +96,34 @@ fn fetch_sources(
         )
     })?;
 
+    // Copy all cached sources to the output directory. Output dir is {out_dir}/${name_subdirs}
+    for (name, artefact) in cache.iter_digests(&cached) {
+        // SAFETY: can unwrap because we just got all these digests from the cache, so we know
+        // they are present
+        let artefact = artefact.unwrap();
+        let artefact_path = cache.artefact_path(artefact.source());
+        let dest = out_dir.join(Source::as_path_component(name));
+        println!("{name}: COPY {artefact_path:#?} -> {dest:#?}");
+        if artefact_path.is_dir() {
+            dircpy::copy_dir(artefact_path, &dest).map_err(|err| {
+                AppError::Cache(format!("failed to copy to output dir"), err.into())
+            })?;
+        } else {
+            return Err(AppError::Cache(
+                format!("artefact for source '{name}' not found"),
+                fetch_source::CacheEntryNotFound {
+                    name: name.to_string(),
+                }
+                .into(),
+            ));
+        }
+    }
+
     Ok(errors)
 }
 
 // Report fetch results, including any errors and success messages.
-fn report_fetch_results(errors: Vec<anyhow::Error>, num_sources: usize) {
+fn report_fetch_results(errors: Vec<fetch_source::FetchError>, num_sources: usize) {
     let num_errors = errors.len();
     let num_success = num_sources - num_errors;
     let error_style = console::Style::new().red().bold();
@@ -136,7 +133,8 @@ fn report_fetch_results(errors: Vec<anyhow::Error>, num_sources: usize) {
             "Error [{k}/{num_errors}]: {}",
             error_style.apply_to(err.to_string())
         );
-        err.chain().skip(1).for_each(|cause| {
+        let mut error_source = err.source();
+        while let Some(cause) = error_source {
             let cause_text = format!("{cause}");
             let mut line_iter = cause_text.split("\n");
             eprintln!(
@@ -144,7 +142,8 @@ fn report_fetch_results(errors: Vec<anyhow::Error>, num_sources: usize) {
                 error_style.apply_to(line_iter.next().unwrap_or("?"))
             );
             line_iter.for_each(|line| eprintln!("             {}", error_style.apply_to(line)));
-        });
+            error_source = cause.source();
+        }
     }
     if num_success > 0 {
         println!("🎉 Successfully fetched {num_success} source(s)!");

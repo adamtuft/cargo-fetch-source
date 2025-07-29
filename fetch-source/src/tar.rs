@@ -1,6 +1,6 @@
 //! Support for declaring and fetching tar archives.
 
-use super::error::Error;
+use super::error::FetchErrorInner;
 use super::source::Artefact;
 
 /// A definition of a tar archive to be (or which was) downloaded and extracted
@@ -23,19 +23,18 @@ impl Tar {
         &self.spec.url
     }
 
-    /// Download and extract the tar archive into `dir`.
-    pub fn fetch<P: AsRef<std::path::Path>>(&self, name: &str, dir: P) -> Result<Artefact, Error> {
-        let sub_path = std::path::PathBuf::from_iter(name.split("::"));
-        let local = dir.as_ref().join(&sub_path);
-        if !local.exists() {
-            std::fs::create_dir_all(&local)?;
+    /// Download and extract the tar archive directly into `dir`.
+    pub fn fetch<P: AsRef<std::path::Path>>(&self, dir: P) -> Result<Artefact, FetchErrorInner> {
+        let dir = dir.as_ref();
+        if !dir.exists() {
+            std::fs::create_dir_all(dir)?;
         }
         let bytes = reqwest::blocking::get(self.spec.url.clone())?.bytes()?;
         let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(bytes.as_ref()));
         // Unpack the contents of the archive directly into the provided directory
-        archive.unpack(dir.as_ref())?;
+        archive.unpack(dir)?;
         Ok(Artefact::Tar(TarArtefact {
-            path: local,
+            path: dir.to_path_buf(),
             remote: self.spec.clone(),
         }))
     }

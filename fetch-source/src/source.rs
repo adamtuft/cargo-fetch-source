@@ -1,6 +1,6 @@
 //! Core types for intereacting with sources declared in `Cargo.toml`.
 
-use super::error::Error;
+use super::error::FetchError;
 use super::git::{Git, GitArtefact};
 #[cfg(feature = "tar")]
 use super::tar::{Tar, TarArtefact};
@@ -37,12 +37,25 @@ pub enum SourceParseError {
     TomlInvalid(#[from] toml::de::Error),
 }
 
+pub type FetchResult = Result<NamedSourceArtefact, crate::FetchError>;
+
+/// Represents a source artefact with the name it is known by. Note that a source may be known by
+/// multiple names, so the name is not an intrinsic property of the SourceArtefact.
+/// Fields are public as this type is intended to be easily moved-from.
+#[derive(Debug, PartialEq, Eq)]
+pub struct NamedSourceArtefact {
+    pub artefact: SourceArtefact,
+    pub name: String,
+}
+
 /// Represents a source that has been fetched from a remote location.
 /// This is a combination of the fetched artefact and the source it was fetched from.
-#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq, Clone)]
+/// Note that the name associated with a source *must not* be stored in the cache. This avoids
+/// using one name for a source but then unexpectedly returning another.
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 pub struct SourceArtefact {
     artefact: Artefact,
-    source: Source,
+    pub(crate) source: Source,
 }
 
 impl SourceArtefact {
@@ -114,7 +127,7 @@ impl SourceVariant {
 }
 
 /// Represents an entry in the `package.metadata.fetch-source` table.
-#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq, Clone)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum Source {
     #[cfg(feature = "tar")]
@@ -136,20 +149,33 @@ impl std::fmt::Display for Source {
 
 impl Source {
     /// Fetch the remote source as declared in `Cargo.toml` and put the resulting [`SourceArtefact`] in `dir`.
-    pub fn fetch<P: AsRef<std::path::Path>>(
-        self,
-        name: &str,
-        dir: P,
-    ) -> Result<SourceArtefact, Error> {
-        let artefact = match self {
+    pub fn fetch<P: AsRef<std::path::Path>>(self, name: String, dir: P) -> FetchResult {
+        // The name by which this source is known determines the sub-path within the output directory.
+        let dest = dir.as_ref();
+        let result = match self {
             #[cfg(feature = "tar")]
-            Source::Tar(ref tar) => tar.fetch(name, dir),
-            Source::Git(ref git) => git.fetch(name, dir),
-        }?;
-        Ok(SourceArtefact {
-            artefact,
-            source: self,
-        })
+            Source::Tar(ref tar) => tar.fetch(&dest),
+            Source::Git(ref git) => git.fetch(&dest),
+        };
+        match result {
+            Ok(artefact) => Ok(NamedSourceArtefact {
+                artefact: SourceArtefact {
+                    artefact,
+                    source: self,
+                },
+                name,
+            }),
+            Err(err) => Err(FetchError {
+                err,
+                source: self,
+                name,
+            }),
+        }
+    }
+
+    /// Convert a name into a partial path. Each `::`-separated component maps onto a subdirectory.
+    pub fn as_path_component<S: AsRef<str>>(name: S) -> std::path::PathBuf {
+        std::path::PathBuf::from_iter(name.as_ref().split("::"))
     }
 
     fn enforce_one_valid_variant<S: ToString>(

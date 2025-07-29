@@ -2,7 +2,7 @@
 
 use std::io::Read;
 
-use super::error::Error;
+use super::error::FetchErrorInner;
 use super::source::Artefact;
 
 #[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq, Clone)]
@@ -68,17 +68,16 @@ impl Git {
     }
 
     /// Clone the repository into `dir`.
-    pub fn fetch<P: AsRef<std::path::Path>>(&self, name: &str, dir: P) -> Result<Artefact, Error> {
-        let sub_path = std::path::PathBuf::from_iter(name.split("::"));
-        let local = dir.as_ref().join(&sub_path);
-        if !local.exists() {
+    pub fn fetch<P: AsRef<std::path::Path>>(&self, dir: P) -> Result<Artefact, FetchErrorInner> {
+        if !dir.as_ref().exists() {
             std::fs::create_dir_all(&dir)?;
         }
-        let mut proc = self.clone_repo_subprocess(&local).spawn()?;
+        let mut proc = self.clone_repo_subprocess(dir.as_ref()).spawn()?;
         let status = proc.wait()?;
+        let full_path = dir.as_ref().to_path_buf();
         if status.success() {
             Ok(Artefact::Git(GitArtefact {
-                local,
+                local: full_path,
                 remote: self.spec.clone(),
             }))
         } else {
@@ -95,9 +94,9 @@ impl Git {
             if self.spec.recursive {
                 command.push_str("--recurse-submodules --shallow-submodules");
             }
-            command.push_str(&format!("{} {}", self.spec.url, local.display()));
+            command.push_str(&format!("{} {}", self.spec.url, full_path.display()));
             let root_cause = anyhow::anyhow!(stderr);
-            Err(Error::subprocess(command, status, root_cause))
+            Err(FetchErrorInner::subprocess(command, status, root_cause))
         }
     }
 
