@@ -5,30 +5,11 @@ use crate::{NamedSourceArtefact, Source, SourceArtefact};
 
 const CACHE_FILE_NAME: &str = "fetch-source-cache.json";
 
-// The digest associated with a named source
+// The digest associated with a particular named source
 pub struct NamedDigest {
     pub name: String,
     pub digest: String,
 }
-
-// pub type CachedSources<'a, K> = BTreeMap<K, MaybeCachedSource<'a>>;
-
-/// Represents whether a given Source is cached or not.
-// pub enum MaybeCachedSource<'cache> {
-//     /// The source was fetched and stored in the cache.
-//     Cached(Source, &'cache SourceArtefact),
-//     /// The source was not found in the cache, and this is where it should be fetched to.
-//     NotCached(Source, std::path::PathBuf),
-// }
-
-// impl<'a> MaybeCachedSource<'a> {
-//     pub fn take_source(self) -> Source {
-//         match self {
-//             MaybeCachedSource::Cached(s, _) => s,
-//             MaybeCachedSource::NotCached(s, _) => s,
-//         }
-//     }
-// }
 
 /// The cache is a collection of cached artefacts, indexed by their source's digest.
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
@@ -61,7 +42,7 @@ impl Cache {
         self.cache_file.parent().unwrap()
     }
 
-    /// Get the path to a cached artefact
+    /// Calculate the path which a fetched source would have within the cache
     pub fn artefact_path(&self, source: &Source) -> std::path::PathBuf {
         self.cache_dir().join(Self::digest(source))
     }
@@ -72,8 +53,8 @@ impl Cache {
     }
 
     /// Fetch and insert missing sources. Fetched sources are consumed and become cached artefacts.
-    /// Return keys to the cached artefacts. Sources which couldn't be fetched are returned
-    /// via errors.
+    /// Return the digests of the cached source artefacts. Sources which couldn't be fetched are 
+    /// returned via errors.
     pub fn fetch_missing<S, F>(
         &mut self,
         sources: S,
@@ -83,6 +64,7 @@ impl Cache {
         S: Iterator<Item = (String, Source)>,
         F: FnOnce(Vec<(String, Source, std::path::PathBuf)>) -> Vec<crate::FetchResult>,
     {
+        // Get the digests of cached sources and the required cache path for missing sources.
         let (cached, missing) = sources.fold(
             (Vec::new(), Vec::new()),
             |(mut cached, mut missing), (name, source)| {
@@ -96,6 +78,8 @@ impl Cache {
                 (cached, missing)
             },
         );
+        // Get missing sources via callback, returning any errors in fetching. Cache fetched
+        // artefacts and return their digests for later look-up.
         fetch(missing)
             .into_iter()
             .fold((cached, Vec::new()), |(mut cached, mut errors), result| {
@@ -107,44 +91,8 @@ impl Cache {
             })
     }
 
-    /// Tag cached sources with a reference to their cached artefact, and uncached sources with the
-    /// path where they should be fetched to.
-    // pub fn into_cached_sources<'cache, S, K>(&'cache self, sources: S) -> CachedSources<'cache, K>
-    // where
-    //     S: IntoIterator<Item = (K, Source)>,
-    //     K: Ord + Send + Sync,
-    // {
-    //     sources
-    //         .into_iter()
-    //         .map(|(key, source)| {
-    //             let maybe_cached = match self.get(&source) {
-    //                 Some(artefact) => MaybeCachedSource::Cached(source, artefact),
-    //                 None => {
-    //                     let artefact_path = self.artefact_path(&source);
-    //                     MaybeCachedSource::NotCached(source, artefact_path)
-    //                 }
-    //             };
-    //             (key, maybe_cached)
-    //         })
-    //         .collect()
-    // }
-
-    /// Re-check which sources are cached. Useful after a cache update when sources have been fetched
-    // pub fn refresh<'cache, K>(
-    //     &'cache self,
-    //     cached_sources: CachedSources<'_, K>,
-    // ) -> CachedSources<'cache, K>
-    // where
-    //     K: Ord + Send + Sync,
-    // {
-    //     self.into_cached_sources(
-    //         cached_sources
-    //             .into_iter()
-    //             .map(|(k, s)| (k, s.take_source())),
-    //     )
-    // }
-
-    /// Loads the cache from a JSON file in the given directory, creating a new cache if the file does not exist.
+    /// Loads the cache from a JSON file in the given directory, creating a new cache if the file
+    /// does not exist.
     pub fn load<P>(cache_dir: P) -> Result<Self, crate::Error>
     where
         P: AsRef<std::path::Path>,
@@ -175,8 +123,8 @@ impl Cache {
         cache_dir.as_ref().join(CACHE_FILE_NAME).is_file()
     }
 
-    /// Inserts a new value into the cache, replacing any existing value with the same source digest.
-    /// Returns the key of the newly-inserted artefact
+    /// Cache a named source artefact and return its digest. Replaces the previous value for this
+    /// source. Note that a source need not have a unique name.
     pub fn insert(&mut self, artefact: NamedSourceArtefact) -> NamedDigest {
         let (name, artefact) = (artefact.name, artefact.artefact);
         let digest = Self::digest(artefact.source());
@@ -190,9 +138,7 @@ impl Cache {
     }
 
     /// Retrieves a cached value for the given source, if it exists.
-    pub fn get<'cache, 'src>(&'cache self, source: &Source) -> Option<&'cache SourceArtefact>
-    where
-        'src: 'cache,
+    pub fn get<'a>(&'a self, source: &Source) -> Option<&'a SourceArtefact>
     {
         self.map.get(&Self::digest(source))
     }
