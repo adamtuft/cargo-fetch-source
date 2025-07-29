@@ -85,9 +85,9 @@ fn fetch_sources(
         unsafe { std::env::set_var("RAYON_NUM_THREADS", format!("{threads}")) };
     }
 
-    // NOTE: If I just return a reference to the cached artefact in Cache::fetch_missing
-    //       then I still know which sources are now available after fetching missing sources.
-    let (cached, errors) = cache.fetch_missing(sources.into_iter(), fetch_all_parallel);
+    let (mut cached, missing) = cache.partition_by_status(sources.into_iter());
+    let (fetched, errors) = cache.fetch_missing(missing, fetch_all_parallel);
+    cached.extend(fetched);
 
     cache.save().map_err(|err| {
         AppError::Cache(

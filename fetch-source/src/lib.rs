@@ -123,7 +123,7 @@ mod source;
 #[cfg(feature = "tar")]
 mod tar;
 
-pub use cache::Cache;
+pub use cache::{Cache, NamedFetchSpec};
 pub use error::{CacheEntryNotFound, Error, FetchError};
 pub use git::Git;
 pub use source::{

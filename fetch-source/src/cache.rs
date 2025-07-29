@@ -5,10 +5,23 @@ use crate::{NamedSourceArtefact, Source, SourceArtefact};
 
 const CACHE_FILE_NAME: &str = "fetch-source-cache.json";
 
-// The digest associated with a particular named source
+/// The digest associated with a particular named source
 pub struct NamedDigest {
     pub name: String,
     pub digest: String,
+}
+
+/// The arguments required to fetch a missing source
+pub struct NamedFetchSpec {
+    pub name: String,
+    pub source: Source,
+    pub path: std::path::PathBuf,
+}
+
+impl NamedFetchSpec {
+    pub fn into_fetch(self) -> impl FnOnce() -> crate::FetchResult {
+        move || self.source.fetch(self.name, self.path)
+    }
 }
 
 /// The cache is a collection of cached artefacts, indexed by their source's digest.
@@ -52,37 +65,45 @@ impl Cache {
         __digest__(source)
     }
 
-    /// Fetch and insert missing sources. Fetched sources are consumed and become cached artefacts.
-    /// Return the digests of the cached source artefacts. Sources which couldn't be fetched are 
-    /// returned via errors.
-    pub fn fetch_missing<S, F>(
-        &mut self,
-        sources: S,
-        fetch: F,
-    ) -> (Vec<NamedDigest>, Vec<crate::FetchError>)
+    /// Partition a set of sources into those which are cached (giving their named digests) and
+    /// those which are missing (giving their fetch specifications)
+    pub fn partition_by_status<S>(&self, sources: S) -> (Vec<NamedDigest>, Vec<NamedFetchSpec>)
     where
-        S: Iterator<Item = (String, Source)>,
-        F: FnOnce(Vec<(String, Source, std::path::PathBuf)>) -> Vec<crate::FetchResult>,
+        S: Iterator<Item = (String, Source)>
     {
-        // Get the digests of cached sources and the required cache path for missing sources.
-        let (cached, missing) = sources.fold(
+        sources.fold(
             (Vec::new(), Vec::new()),
             |(mut cached, mut missing), (name, source)| {
                 let digest = Self::digest(&source);
                 if self.map.contains_key(&digest) {
-                    cached.push(NamedDigest { name, digest })
+                    cached.push(NamedDigest { name, digest });
                 } else {
                     let path = self.artefact_path(&source);
-                    missing.push((name, source, path))
+                    missing.push(NamedFetchSpec {
+                        name,
+                        source,
+                        path,
+                    });
                 }
                 (cached, missing)
             },
-        );
-        // Get missing sources via callback, returning any errors in fetching. Cache fetched
-        // artefacts and return their digests for later look-up.
-        fetch(missing)
+        )
+    }
+
+    /// Fetch and insert missing sources. Fetched sources are consumed and become cached artefacts.
+    /// Return the digests of the cached source artefacts. Sources which couldn't be fetched are 
+    /// returned via errors.
+    pub fn fetch_missing<F>(
+        &mut self,
+        sources: Vec<NamedFetchSpec>,
+        fetch: F,
+    ) -> (Vec<NamedDigest>, Vec<crate::FetchError>)
+    where
+        F: FnOnce(Vec<NamedFetchSpec>) -> Vec<crate::FetchResult>,
+    {
+        fetch(sources)
             .into_iter()
-            .fold((cached, Vec::new()), |(mut cached, mut errors), result| {
+            .fold((Vec::new(), Vec::new()), |(mut cached, mut errors), result| {
                 match result {
                     Ok(artefact) => cached.push(self.insert(artefact)),
                     Err(error) => errors.push(error),
