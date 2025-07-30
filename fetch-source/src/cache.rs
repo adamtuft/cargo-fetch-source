@@ -1,15 +1,19 @@
 // A BTree maintains key order
 use std::collections::BTreeMap;
 
-use crate::{NamedSourceArtefact, Source, SourceArtefact};
+use crate::{Source, SourceArtefact};
 
 const CACHE_FILE_NAME: &str = "fetch-source-cache.json";
 
-/// The digest associated with a particular named source
-#[derive(Debug, PartialEq, Eq)]
-pub struct NamedDigest {
-    pub name: String,
-    pub digest: String,
+#[derive(
+    Debug, Default, serde::Deserialize, serde::Serialize, PartialEq, Eq, PartialOrd, Ord, Clone,
+)]
+pub struct Digest(String);
+
+impl AsRef<std::path::Path> for Digest {
+    fn as_ref(&self) -> &std::path::Path {
+        self.0.as_ref()
+    }
 }
 
 /// The arguments required to fetch a missing source
@@ -23,13 +27,19 @@ pub struct NamedFetchSpec {
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 pub struct Cache {
     #[serde(flatten)]
-    map: BTreeMap<String, SourceArtefact>,
+    map: BTreeMap<Digest, SourceArtefact>,
     #[serde(skip)]
     cache_file: std::path::PathBuf,
 }
 
-fn __digest__<D: serde::Serialize>(data: &D) -> String {
-    sha256::digest(serde_json::to_string(data).unwrap())
+impl std::fmt::Display for Digest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+fn __digest__<D: serde::Serialize>(data: &D) -> Digest {
+    Digest(sha256::digest(serde_json::to_string(data).unwrap()))
 }
 
 impl Cache {
@@ -56,13 +66,13 @@ impl Cache {
     }
 
     /// Get the digest of a source
-    fn digest(source: &Source) -> String {
+    fn digest(source: &Source) -> Digest {
         __digest__(source)
     }
 
     /// Partition a set of sources into those which are cached (giving their named digests) and
     /// those which are missing (giving their fetch specifications)
-    pub fn partition_by_status<S>(&self, sources: S) -> (Vec<NamedDigest>, Vec<NamedFetchSpec>)
+    pub fn partition_by_status<S>(&self, sources: S) -> (Vec<(String, Digest)>, Vec<NamedFetchSpec>)
     where
         S: Iterator<Item = (String, Source)>,
     {
@@ -71,7 +81,7 @@ impl Cache {
             |(mut cached, mut missing), (name, source)| {
                 let digest = Self::digest(&source);
                 if self.map.contains_key(&digest) {
-                    cached.push(NamedDigest { name, digest });
+                    cached.push((name, digest));
                 } else {
                     let path = self.cached_path(&source);
                     missing.push(NamedFetchSpec { name, source, path });
@@ -88,15 +98,15 @@ impl Cache {
         &mut self,
         sources: Vec<NamedFetchSpec>,
         fetch: F,
-    ) -> (Vec<NamedDigest>, Vec<crate::FetchError>)
+    ) -> (Vec<(String, Digest)>, Vec<crate::FetchError>)
     where
-        F: FnOnce(Vec<NamedFetchSpec>) -> Vec<crate::FetchResult>,
+        F: FnOnce(Vec<NamedFetchSpec>) -> Vec<crate::NamedFetchResult>,
     {
         fetch(sources).into_iter().fold(
             (Vec::new(), Vec::new()),
             |(mut cached, mut errors), result| {
                 match result {
-                    Ok(artefact) => cached.push(self.insert(artefact)),
+                    Ok((name, artefact)) => cached.push((name, self.insert(artefact))),
                     Err(error) => errors.push(error),
                 }
                 (cached, errors)
@@ -138,11 +148,10 @@ impl Cache {
 
     /// Cache a named source artefact and return its digest. Replaces the previous value for this
     /// source. Note that a source need not have a unique name.
-    pub fn insert(&mut self, artefact: NamedSourceArtefact) -> NamedDigest {
-        let (name, artefact) = (artefact.name, artefact.artefact);
-        let digest = Self::digest(artefact.source());
+    pub fn insert(&mut self, artefact: SourceArtefact) -> Digest {
+        let digest = Self::digest(artefact.as_ref());
         self.map.insert(digest.clone(), artefact);
-        NamedDigest { name, digest }
+        digest
     }
 
     /// Check whether the cache contains the given source.
@@ -155,18 +164,8 @@ impl Cache {
         self.map.get(&Self::digest(source))
     }
 
-    /// Retrieve a cached value by the source digest
-    pub fn get_digest(&self, digest: &str) -> Option<&SourceArtefact> {
+    pub fn get_digest<'a>(&'a self, digest: &Digest) -> Option<&'a SourceArtefact> {
         self.map.get(digest)
-    }
-
-    pub fn iter_digests<'a>(
-        &'a self,
-        digests: &'a [NamedDigest],
-    ) -> impl Iterator<Item = (&'a str, Option<&'a SourceArtefact>)> + 'a {
-        digests
-            .iter()
-            .map(move |digest| (digest.name.as_str(), self.get_digest(&digest.digest)))
     }
 
     /// Removes a cached value for the given source, returning it if it existed.
@@ -191,8 +190,8 @@ impl Cache {
 }
 
 impl IntoIterator for Cache {
-    type Item = (String, SourceArtefact);
-    type IntoIter = std::collections::btree_map::IntoIter<String, SourceArtefact>;
+    type Item = (Digest, SourceArtefact);
+    type IntoIter = std::collections::btree_map::IntoIter<Digest, SourceArtefact>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.map.into_iter()
@@ -200,8 +199,8 @@ impl IntoIterator for Cache {
 }
 
 impl<'a> IntoIterator for &'a Cache {
-    type Item = (&'a String, &'a SourceArtefact);
-    type IntoIter = std::collections::btree_map::Iter<'a, String, SourceArtefact>;
+    type Item = (&'a Digest, &'a SourceArtefact);
+    type IntoIter = std::collections::btree_map::Iter<'a, Digest, SourceArtefact>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.map.iter()
@@ -237,25 +236,23 @@ mod tests {
     #[test]
     fn same_artefact_with_multiple_names_exists_once() {
         let mut cache = mock_cache_at! {"/foo/bar"};
-        let named_artefact_1: crate::NamedSourceArtefact = crate::build_from_json! {
-            "name": "foo",
-            "artefact": {
-                "artefact": { "tar": { "path": "AAAAAAAA", "remote": { "tar": "www.example.com/test.tar.gz" } } },
-                "source": { "tar": "www.example.com/test.tar.gz" }
+        let artefact_1: crate::SourceArtefact = crate::build_from_json! {
+            "tar": {
+                "source": { "tar": "www.example.com/test.tar.gz" },
+                "artefact": "AAAAAAAA",
             }
-        }.unwrap();
-        let named_artefact_2: crate::NamedSourceArtefact = crate::build_from_json! {
-            "name": "bar",
-            "artefact": {
-                "artefact": { "tar": { "path": "BBBBBBBB", "remote": { "tar": "www.example.com/test.tar.gz" } } },
-                "source": { "tar": "www.example.com/test.tar.gz" }
+        }
+        .unwrap();
+        let artefact_2: crate::SourceArtefact = crate::build_from_json! {
+            "tar": {
+                "source": { "tar": "www.example.com/test.tar.gz" },
+                "artefact": "BBBBBBBB",
             }
-        }.unwrap();
-        let named_digest_1 = cache.insert(named_artefact_1);
-        let named_digest_2 = cache.insert(named_artefact_2);
+        }
+        .unwrap();
+        let digest_1 = cache.insert(artefact_1);
+        let digest_2 = cache.insert(artefact_2);
         assert_eq!(cache.len(), 1);
-        assert_eq!(named_digest_1.name, "foo");
-        assert_eq!(named_digest_2.name, "bar");
-        assert_eq!(named_digest_1.digest, named_digest_2.digest); // But the same digest, due to having the same source
+        assert_eq!(digest_1, digest_2);
     }
 }

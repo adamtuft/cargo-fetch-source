@@ -97,11 +97,11 @@ fn fetch_sources(
     })?;
 
     // Copy all cached sources to the output directory. Output dir is {out_dir}/${name_subdirs}
-    for (name, artefact) in cache.iter_digests(&cached) {
+    for (name, artefact) in cached.iter().map(|(n, d)| (n, cache.get_digest(d))) {
         // SAFETY: can unwrap because we just got all these digests from the cache, so we know
         // they are present
         let artefact = artefact.unwrap();
-        let cached_path = cache.cached_path(artefact.source());
+        let cached_path = cache.cached_path(artefact.as_ref());
         if !cached_path.is_dir() {
             return Err(AppError::Cache(
                 format!("artefact for source '{name}' not found"),

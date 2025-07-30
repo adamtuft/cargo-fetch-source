@@ -6,18 +6,7 @@
 pub struct FetchError {
     #[source]
     pub err: FetchErrorInner,
-    pub name: String,
     pub source: crate::Source,
-}
-
-impl FetchError {
-    pub fn new(inner: FetchErrorInner, name: String, source: crate::Source) -> Self {
-        Self {
-            err: inner,
-            name,
-            source,
-        }
-    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -27,6 +16,11 @@ pub struct FetchErrorInner {
 }
 
 impl FetchErrorInner {
+    /// Add a Source to produce a FetchError
+    pub fn attach(self, source: crate::Source) -> FetchError {
+        FetchError { err: self, source }
+    }
+
     /// Manual constructor for a subprocess error. This exists because there's no lower error type
     /// to forward.
     pub(crate) fn subprocess(

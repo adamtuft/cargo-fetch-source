@@ -60,7 +60,7 @@
 //!
 //! let out_dir = PathBuf::from(std::env::temp_dir());
 //! for err in fetch_source::try_parse_toml(cargo_toml)?.into_iter()
-//!     .map(|(name, source)| source.fetch(name, &out_dir))
+//!     .map(|(_, source)| source.fetch(&out_dir))
 //!     .filter_map(Result::err) {
 //!     eprintln!("{err}");
 //! }
@@ -87,7 +87,7 @@ let cargo_toml = r#"
 
 let out_dir = PathBuf::from(std::env::temp_dir());
 fetch_source::try_parse_toml(cargo_toml)?.into_par_iter()
-    .map(|(name, source)| source.fetch(name, &out_dir))
+    .map(|(_, source)| source.fetch(&out_dir))
     .filter_map(Result::err)
     .for_each(|err| eprintln!("{err}"));
 # Ok(())
@@ -127,8 +127,8 @@ pub use cache::{Cache, NamedFetchSpec};
 pub use error::{CacheEntryNotFound, Error, FetchError};
 pub use git::Git;
 pub use source::{
-    Artefact, FetchResult, NamedSourceArtefact, Source, SourceArtefact, SourceParseError,
-    SourcesTable, try_parse_toml,
+    FetchResult, NamedFetchResult, Source, SourceArtefact, SourceParseError, SourcesTable,
+    try_parse_toml,
 };
 #[cfg(feature = "tar")]
 pub use tar::Tar;
@@ -144,10 +144,10 @@ pub fn load_sources<P: AsRef<std::path::Path>>(path: P) -> Result<SourcesTable, 
 pub fn fetch_all<P: AsRef<std::path::Path>>(
     sources: SourcesTable,
     out_dir: P,
-) -> Vec<Result<NamedSourceArtefact, crate::FetchError>> {
+) -> Vec<Result<(String, SourceArtefact), crate::FetchError>> {
     sources
         .into_iter()
-        .map(|(name, source)| source.fetch(name, &out_dir))
+        .map(|(name, source)| source.fetch(&out_dir).map(|artefact| (name, artefact)))
         .collect()
 }
 
@@ -159,10 +159,10 @@ use rayon::prelude::*;
 pub fn fetch_all_par<P: AsRef<std::path::Path> + Sync>(
     sources: SourcesTable,
     out_dir: P,
-) -> Vec<Result<NamedSourceArtefact, crate::FetchError>> {
+) -> Vec<Result<(String, SourceArtefact), crate::FetchError>> {
     sources
         .into_par_iter()
-        .map(|(name, source)| source.fetch(name, out_dir.as_ref()))
+        .map(|(name, source)| source.fetch(&out_dir).map(|artefact| (name, artefact)))
         .collect::<Vec<_>>()
 }
 
