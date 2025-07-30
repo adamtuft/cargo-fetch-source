@@ -1,6 +1,6 @@
 //! Core types for intereacting with sources declared in `Cargo.toml`.
 
-use super::error::{FetchError, FetchErrorInner};
+use super::error::FetchError;
 use super::git::{Git, GitArtefact};
 #[cfg(feature = "tar")]
 use super::tar::{Tar, TarArtefact};

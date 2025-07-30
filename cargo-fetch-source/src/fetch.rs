@@ -32,13 +32,6 @@ fn format_failure(name: &str) -> (ProgressStyle, String) {
     )
 }
 
-fn format_cached(name: &str) -> (ProgressStyle, String) {
-    (
-        ProgressStyle::with_template("{prefix:.cyan.bold/blue.bold} {msg:.cyan/blue}").unwrap(),
-        format!("📦  {name} -> <cached>"),
-    )
-}
-
 // Fetch a single source, reporting progress in the provided progress bar
 fn fetch_one(
     name: &str,
