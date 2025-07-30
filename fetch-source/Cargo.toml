@@ -28,10 +28,3 @@ reqwest = ["dep:reqwest", "dep:bytes"]
 # when it provides the option to fetch tar sources asynchronously
 async = []
 rayon = ["dep:rayon"]
-
-[package.metadata.fetch-source]
-"otf2::2.3" = { tar = "https://zenodo.org/records/4682684/files/otf2-2.3.tar.gz" }
-"dotfiles::default" = { git = "git@github.com:adamtuft/dotfiles.git" }
-"dotfiles::cosma" = { git = "git@github.com:adamtuft/dotfiles.git", branch = "cosma" }
-"dotfiles::commit-long" = { git = "git@github.com:adamtuft/dotfiles.git", rev = "82fbfb0fe2b037676610710069325f703613935f" }
-"dotfiles::no-branch" = { git = "git@github.com:adamtuft/dotfiles.git", branch = "not-a-branch" }
