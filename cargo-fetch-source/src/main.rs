@@ -89,11 +89,9 @@ fn fetch_sources(
     let (fetched, errors) = cache.fetch_missing(missing, fetch_all_parallel);
     cached.extend(fetched);
 
-    cache.save().map_err(|err| {
-        AppError::Cache(
-            format!("failed to save cache to {}", cache.cache_file().display()),
-            err,
-        )
+    cache.save().map_err(|err| AppError::CacheSaveFailed {
+        err,
+        path: cache.cache_file().to_path_buf(),
     })?;
 
     // Copy all cached sources to the output directory. Output dir is {out_dir}/${name_subdirs}
@@ -103,18 +101,18 @@ fn fetch_sources(
         let artefact = artefact.unwrap();
         let cached_path = cache.cached_path(artefact.as_ref());
         if !cached_path.is_dir() {
-            return Err(AppError::Cache(
-                format!("artefact for source '{name}' not found"),
-                fetch_source::CacheEntryNotFound {
-                    name: name.to_string(),
-                }
-                .into(),
-            ));
+            return Err(AppError::MissingArtefactDirectory {
+                name: name.clone(),
+                path: cached_path,
+            });
         }
         let dest = out_dir.join(Source::as_path_component(name));
         println!("{name}: COPY {cached_path:#?} -> {dest:#?}");
-        dircpy::copy_dir(cached_path, &dest)
-            .map_err(|err| AppError::Cache("failed to copy to output dir".to_string(), err.into()))?;
+        dircpy::copy_dir(&cached_path, &dest).map_err(|err| AppError::CopyArtefactFailed {
+            src: cached_path,
+            dst: dest,
+            err,
+        })?;
     }
 
     Ok(errors)

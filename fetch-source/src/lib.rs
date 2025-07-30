@@ -1,4 +1,6 @@
-#![allow(rustdoc::redundant_explicit_links)]
+#![warn(missing_docs)]
+#![warn(rustdoc::missing_crate_level_docs)]
+#![warn(rustdoc::redundant_explicit_links)]
 //! Declare external source dependencies in `Cargo.toml` and fetch them programatically.
 //!
 //! This crate allows you to define external sources (Git repositories, tar archives) in your
@@ -124,7 +126,7 @@ mod source;
 mod tar;
 
 pub use cache::{Cache, NamedFetchSpec};
-pub use error::{CacheEntryNotFound, Error, FetchError};
+pub use error::{Error, FetchError};
 pub use git::Git;
 pub use source::{
     FetchResult, NamedFetchResult, Source, SourceArtefact, SourceParseError, SourcesTable,

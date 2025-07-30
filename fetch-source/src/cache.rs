@@ -18,8 +18,11 @@ impl AsRef<std::path::Path> for Digest {
 
 /// The arguments required to fetch a missing source
 pub struct NamedFetchSpec {
+    /// The name this source is known by
     pub name: String,
+    /// The source to be fetched
     pub source: Source,
+    /// The destination for the fetched artefact
     pub path: std::path::PathBuf,
 }
 
@@ -164,6 +167,7 @@ impl Cache {
         self.map.get(&Self::digest(source))
     }
 
+    /// Get the artefact associated with a source's digest
     pub fn get_digest<'a>(&'a self, digest: &Digest) -> Option<&'a SourceArtefact> {
         self.map.get(digest)
     }
