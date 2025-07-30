@@ -129,8 +129,7 @@ pub use cache::{Cache, NamedFetchSpec};
 pub use error::{Error, FetchError};
 pub use git::Git;
 pub use source::{
-    FetchResult, NamedFetchResult, Source, SourceArtefact, SourceParseError, SourcesTable,
-    try_parse_toml,
+    FetchResult, Source, SourceArtefact, SourceParseError, SourcesTable, try_parse_toml,
 };
 #[cfg(feature = "tar")]
 pub use tar::Tar;

@@ -10,23 +10,35 @@ use super::tar::{Tar, TarArtefact};
 pub enum SourceParseError {
     /// An unknown source variant was encountered.
     #[error("expected a valid source type for source '{source_name}': expected one of: {known}", known = SOURCE_VARIANTS.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", "))]
-    VariantUnknown { source_name: String },
+    VariantUnknown {
+        /// The name of the source whose variant wasn't recognised
+        source_name: String,
+    },
 
     /// A source has multiple variants given.
     #[error("multiple source types for source '{source_name}': expected exactly one of: {known}", known = SOURCE_VARIANTS.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", "))]
-    VariantMultiple { source_name: String },
+    VariantMultiple {
+        /// The name of the source with multiple variants
+        source_name: String,
+    },
 
     /// A source has a variant which depends on a disabled feature.
     #[error("source '{source_name}' has type '{variant}' but needs disabled feature '{requires}'")]
     VariantDisabled {
+        /// The name of the source
         source_name: String,
+        /// The source type
         variant: String,
+        /// The disabled feature
         requires: String,
     },
 
     /// A toml value was expected to be a table.
     #[error("expected value '{name}' to be a toml table")]
-    ValueNotTable { name: String },
+    ValueNotTable {
+        /// The key for the value which was expected to be a table
+        name: String,
+    },
 
     /// The `package.metadata.fetch-source` table was not found.
     #[error("required table 'package.metadata.fetch-source' not found in string")]
@@ -41,8 +53,8 @@ pub enum SourceParseError {
     JsonInvalid(#[from] serde_json::Error),
 }
 
-pub type FetchResult = Result<SourceArtefact, crate::FetchError>;
-pub type NamedFetchResult = Result<(String, SourceArtefact), crate::FetchError>;
+/// Represents the result of a fetch operation
+pub type FetchResult<T> = Result<T, crate::FetchError>;
 
 /// Represents a source that has been fetched from a remote location.
 /// This is a combination of the fetched artefact and the source it was fetched from.
@@ -52,13 +64,19 @@ pub type NamedFetchResult = Result<(String, SourceArtefact), crate::FetchError>;
 pub enum SourceArtefact {
     #[cfg(feature = "tar")]
     #[serde(rename = "tar")]
+    /// A local copy of a tar archive
     Tar {
+        /// The upstream source
         source: Source,
+        /// The local copy
         artefact: TarArtefact,
     },
     #[serde(rename = "git")]
+    /// A clone of a git repo
     Git {
+        /// The upstream source
         source: Source,
+        /// The local copy
         artefact: GitArtefact,
     },
 }
@@ -152,8 +170,10 @@ impl SourceVariant {
 pub enum Source {
     #[cfg(feature = "tar")]
     #[serde(rename = "tar")]
+    /// A remote tar archive
     Tar(Tar),
     #[serde(rename = "git")]
+    /// A remote git repo
     Git(Git),
 }
 
@@ -169,7 +189,7 @@ impl std::fmt::Display for Source {
 
 impl Source {
     /// Fetch the remote source as declared in `Cargo.toml` and put the resulting [`SourceArtefact`] in `dir`.
-    pub fn fetch<P: AsRef<std::path::Path>>(self, dir: P) -> FetchResult {
+    pub fn fetch<P: AsRef<std::path::Path>>(self, dir: P) -> FetchResult<SourceArtefact> {
         let dest = dir.as_ref();
         let result = match self {
             #[cfg(feature = "tar")]

@@ -103,7 +103,7 @@ impl Cache {
         fetch: F,
     ) -> (Vec<(String, Digest)>, Vec<crate::FetchError>)
     where
-        F: FnOnce(Vec<NamedFetchSpec>) -> Vec<crate::NamedFetchResult>,
+        F: FnOnce(Vec<NamedFetchSpec>) -> Vec<crate::FetchResult<(String, SourceArtefact)>>,
     {
         fetch(sources).into_iter().fold(
             (Vec::new(), Vec::new()),
