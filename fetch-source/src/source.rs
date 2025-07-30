@@ -173,8 +173,8 @@ impl Source {
         let dest = dir.as_ref();
         let result = match self {
             #[cfg(feature = "tar")]
-            Source::Tar(ref tar) => tar.fetch(&dest).map(Artefact::Tar),
-            Source::Git(ref git) => git.fetch(&dest).map(Artefact::Git),
+            Source::Tar(ref tar) => tar.fetch(dest).map(Artefact::Tar),
+            Source::Git(ref git) => git.fetch(dest).map(Artefact::Git),
         };
         match result {
             Ok(artefact) => Ok(artefact.attach_source(self)),

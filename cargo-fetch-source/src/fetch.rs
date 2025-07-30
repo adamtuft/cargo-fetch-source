@@ -43,7 +43,7 @@ fn fetch_one(
     bar.set_message(format!("⏳  {name} -> "));
     let result = source.fetch(artefact_path);
     let (style, message) = match &result {
-        Ok(artefact) => format_success(name, &artefact),
+        Ok(artefact) => format_success(name, artefact),
         Err(_) => format_failure(name),
     };
     bar.set_style(style);

@@ -181,7 +181,7 @@ pub fn iter_cached_artefacts<P: AsRef<std::path::Path>>(
 #[macro_export]
 macro_rules! build_from_json {
     ($t:ty) => {{
-        serde_json::from_value::<$t>(serde_json::json! { { } }).map_err(crate::SourceParseError::from)
+        serde_json::from_value::<$t>(serde_json::json! { { } }).map_err($crate::SourceParseError::from)
     }};
     ($t:ty, $($json:tt)+) => {{
         serde_json::from_value::<$t>(serde_json::json! { { $($json)+ } }).map_err(crate::SourceParseError::from)

@@ -114,7 +114,7 @@ fn fetch_sources(
         let dest = out_dir.join(Source::as_path_component(name));
         println!("{name}: COPY {cached_path:#?} -> {dest:#?}");
         dircpy::copy_dir(cached_path, &dest)
-            .map_err(|err| AppError::Cache(format!("failed to copy to output dir"), err.into()))?;
+            .map_err(|err| AppError::Cache("failed to copy to output dir".to_string(), err.into()))?;
     }
 
     Ok(errors)
