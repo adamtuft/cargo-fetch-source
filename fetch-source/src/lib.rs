@@ -15,6 +15,7 @@
 //! # Core Features
 //!
 //! - Define sources directly in your project metadata.
+//! - Cache fetched sources for efficient sharing between projects.
 //! - Clone git repositories (possibly recursively) by branch, tag, or specific commit (requires `git`
 //!   to be installed and available on `PATH`).
 //!
@@ -28,7 +29,7 @@
 //! [`reqwest`]: https://crates.io/crates/reqwest
 //! [`rayon`]: https://crates.io/crates/rayon
 //!
-//! # Usage
+//! # Basic Usage
 //!
 //! Parse external sources declared in your `Cargo.toml` like so:
 //!
@@ -98,6 +99,47 @@ fetch_source::try_parse_toml(cargo_toml)?.into_par_iter()
 "##
 )]
 //!
+//! # Caching Sources
+//! 
+//! Cache sources used by multiple projects for efficient sharing between projects. If two projects
+//! have the same definition of a source (excluding the source's name) then they will use the same
+//! cached copy of the source.
+//! 
+//! ```rust
+//! # use fetch_source::Cache;
+//! # fn main() -> Result<(), fetch_source::Error> {
+//! let cache = Cache::load(std::env::temp_dir())?;
+//! 
+//! let project1 = r#"
+//! [package.metadata.fetch-source]
+//! "syn::latest" = { git = "https://github.com/dtolnay/syn.git" }
+//! "#;
+//! 
+//! let sources1 = fetch_source::try_parse_toml(project1)?;
+//! // Check where this source would be cached
+//! let cache_latest = cache.cached_path(&sources1.get("syn::latest").unwrap());
+//! 
+//! // Note the re-use of 'syn::latest' with a different definition!
+//! let project2 = r#"
+//! [package.metadata.fetch-source]
+//! "syn::greatest" = { git = "https://github.com/dtolnay/syn.git" }
+//! "syn::latest" = { git = "https://github.com/dtolnay/syn.git", branch = "dev" }
+//! "#;
+//! 
+//! let sources2 = fetch_source::try_parse_toml(project2)?;
+//! let cache_greatest = cache.cached_path(&sources2.get("syn::greatest").unwrap());
+//! let cache_dev = cache.cached_path(&sources2.get("syn::latest").unwrap());
+//! 
+//! // The same source by a different name from a different project is the same in the cache
+//! assert_eq!(cache_latest, cache_greatest);
+//! 
+//! // The name doesn't uniquely identify a source - only the definition of the source matters
+//! assert_ne!(cache_latest, cache_dev);
+//! 
+//! # Ok(())
+//! # }
+//! ```
+//! 
 //! # Declaring sources
 //!
 //! The keys in the `package.metadata.fetch-source` table name a remote source. They can include
@@ -129,7 +171,7 @@ pub use cache::{Cache, NamedFetchSpec};
 pub use error::{Error, FetchError};
 pub use git::Git;
 pub use source::{
-    FetchResult, Source, SourceArtefact, SourceParseError, SourcesTable, try_parse_toml,
+    FetchResult, Source, SourceName, Artefact, SourceParseError, SourcesTable, try_parse_toml,
 };
 #[cfg(feature = "tar")]
 pub use tar::Tar;
@@ -145,7 +187,7 @@ pub fn load_sources<P: AsRef<std::path::Path>>(path: P) -> Result<SourcesTable, 
 pub fn fetch_all<P: AsRef<std::path::Path>>(
     sources: SourcesTable,
     out_dir: P,
-) -> Vec<Result<(String, SourceArtefact), crate::FetchError>> {
+) -> Vec<Result<(SourceName, Artefact), crate::FetchError>> {
     sources
         .into_iter()
         .map(|(name, source)| source.fetch(&out_dir).map(|artefact| (name, artefact)))
@@ -160,7 +202,7 @@ use rayon::prelude::*;
 pub fn fetch_all_par<P: AsRef<std::path::Path> + Sync>(
     sources: SourcesTable,
     out_dir: P,
-) -> Vec<Result<(String, SourceArtefact), crate::FetchError>> {
+) -> Vec<Result<(SourceName, Artefact), crate::FetchError>> {
     sources
         .into_par_iter()
         .map(|(name, source)| source.fetch(&out_dir).map(|artefact| (name, artefact)))
@@ -170,7 +212,7 @@ pub fn fetch_all_par<P: AsRef<std::path::Path> + Sync>(
 /// Convenience function to iterate over the artefacts in a cache (if any)
 pub fn iter_cached_artefacts<P: AsRef<std::path::Path>>(
     cache_dir: P,
-) -> Result<impl Iterator<Item = SourceArtefact>, crate::Error> {
+) -> Result<impl Iterator<Item = Artefact>, crate::Error> {
     // Placeholder for future implementation
     Ok(Cache::load(cache_dir)?
         .into_iter()

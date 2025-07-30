@@ -1,9 +1,12 @@
 //! Core types for intereacting with sources declared in `Cargo.toml`.
 
 use super::error::FetchError;
-use super::git::{Git, GitArtefact};
+use super::git::Git;
 #[cfg(feature = "tar")]
-use super::tar::{Tar, TarArtefact};
+use super::tar::Tar;
+
+/// The name of a source
+pub type SourceName = String;
 
 /// Errors encountered when parsing sources from `Cargo.toml`
 #[derive(Debug, thiserror::Error)]
@@ -12,21 +15,21 @@ pub enum SourceParseError {
     #[error("expected a valid source type for source '{source_name}': expected one of: {known}", known = SOURCE_VARIANTS.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", "))]
     VariantUnknown {
         /// The name of the source whose variant wasn't recognised
-        source_name: String,
+        source_name: SourceName,
     },
 
     /// A source has multiple variants given.
     #[error("multiple source types for source '{source_name}': expected exactly one of: {known}", known = SOURCE_VARIANTS.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", "))]
     VariantMultiple {
         /// The name of the source with multiple variants
-        source_name: String,
+        source_name: SourceName,
     },
 
     /// A source has a variant which depends on a disabled feature.
     #[error("source '{source_name}' has type '{variant}' but needs disabled feature '{requires}'")]
     VariantDisabled {
         /// The name of the source
-        source_name: String,
+        source_name: SourceName,
         /// The source type
         variant: String,
         /// The disabled feature
@@ -57,68 +60,27 @@ pub enum SourceParseError {
 pub type FetchResult<T> = Result<T, crate::FetchError>;
 
 /// Represents a source that has been fetched from a remote location.
-/// This is a combination of the fetched artefact and the source it was fetched from.
-/// Note that the name associated with a source *must not* be stored in the cache. This avoids
-/// using one name for a source but then unexpectedly returning another.
 #[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
-pub enum SourceArtefact {
-    #[cfg(feature = "tar")]
-    #[serde(rename = "tar")]
-    /// A local copy of a tar archive
-    Tar {
-        /// The upstream source
-        source: Source,
-        /// The local copy
-        artefact: TarArtefact,
-    },
-    #[serde(rename = "git")]
-    /// A clone of a git repo
-    Git {
-        /// The upstream source
-        source: Source,
-        /// The local copy
-        artefact: GitArtefact,
-    },
+pub struct Artefact {
+    // This is a combination of the fetched artefact and the source it was fetched from.
+    // Note that the name associated with a source *must not* be stored in the cache. This avoids
+    // using one name for a source but then unexpectedly returning another.
+
+    /// The upstream source
+    source: Source,
+    /// The local copy
+    path: std::path::PathBuf,
 }
 
-impl AsRef<std::path::Path> for SourceArtefact {
+impl AsRef<std::path::Path> for Artefact {
     fn as_ref(&self) -> &std::path::Path {
-        match self {
-            #[cfg(feature = "tar")]
-            SourceArtefact::Tar { artefact, .. } => artefact.0.as_ref(),
-            SourceArtefact::Git { artefact, .. } => artefact.0.as_ref(),
-        }
+        &self.path
     }
 }
 
-impl AsRef<Source> for SourceArtefact {
+impl AsRef<Source> for Artefact {
     fn as_ref(&self) -> &Source {
-        match self {
-            #[cfg(feature = "tar")]
-            SourceArtefact::Tar { source, .. } => source,
-            SourceArtefact::Git { source, .. } => source,
-        }
-    }
-}
-
-/// Deliberately private type. This is an implementation detail only.
-/// Represents the output produced when a [`Source`](crate::source::Source) is fetched.
-#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
-enum Artefact {
-    #[cfg(feature = "tar")]
-    #[serde(rename = "tar")]
-    Tar(TarArtefact),
-    #[serde(rename = "git")]
-    Git(GitArtefact),
-}
-
-impl Artefact {
-    fn attach_source(self, source: Source) -> SourceArtefact {
-        match self {
-            #[cfg(feature = "tar")]
-            Artefact::Tar(artefact) => SourceArtefact::Tar { source, artefact },
-            Artefact::Git(artefact) => SourceArtefact::Git { source, artefact },
-        }
+        &self.source
     }
 }
 
@@ -188,16 +150,16 @@ impl std::fmt::Display for Source {
 }
 
 impl Source {
-    /// Fetch the remote source as declared in `Cargo.toml` and put the resulting [`SourceArtefact`] in `dir`.
-    pub fn fetch<P: AsRef<std::path::Path>>(self, dir: P) -> FetchResult<SourceArtefact> {
+    /// Fetch the remote source as declared in `Cargo.toml` and put the resulting [`Artefact`] in `dir`.
+    pub fn fetch<P: AsRef<std::path::Path>>(self, dir: P) -> FetchResult<Artefact> {
         let dest = dir.as_ref();
         let result = match self {
             #[cfg(feature = "tar")]
-            Source::Tar(ref tar) => tar.fetch(dest).map(Artefact::Tar),
-            Source::Git(ref git) => git.fetch(dest).map(Artefact::Git),
+            Source::Tar(ref tar) => tar.fetch(dest),
+            Source::Git(ref git) => git.fetch(dest),
         };
         match result {
-            Ok(artefact) => Ok(artefact.attach_source(self)),
+            Ok(path) => Ok(Artefact { source: self, path }),
             Err(err) => Err(FetchError { err, source: self }),
         }
     }
@@ -243,7 +205,7 @@ impl Source {
 }
 
 /// Represents the contents of the `package.metadata.fetch-source` table in a `Cargo.toml` file.
-pub type SourcesTable = std::collections::HashMap<String, Source>;
+pub type SourcesTable = std::collections::HashMap<SourceName, Source>;
 
 /// Parse a `package.metadata.fetch-source` table into a [`SourcesTable`](crate::source::SourcesTable) map
 pub fn try_parse(table: &toml::Table) -> Result<SourcesTable, SourceParseError> {

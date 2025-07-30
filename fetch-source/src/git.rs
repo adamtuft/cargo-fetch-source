@@ -56,7 +56,7 @@ impl Git {
     pub(crate) fn fetch<P: AsRef<std::path::Path>>(
         &self,
         dir: P,
-    ) -> Result<GitArtefact, FetchErrorInner> {
+    ) -> Result<std::path::PathBuf, FetchErrorInner> {
         if !dir.as_ref().exists() {
             std::fs::create_dir_all(&dir)?;
         }
@@ -64,7 +64,7 @@ impl Git {
         let status = proc.wait()?;
         let full_path = dir.as_ref().to_path_buf();
         if status.success() {
-            Ok(GitArtefact(full_path))
+            Ok(full_path)
         } else {
             let mut stderr = String::new();
             if let Some(mut stderr_pipe) = proc.stderr.take() {
@@ -120,7 +120,3 @@ impl std::fmt::Display for Git {
         Ok(())
     }
 }
-
-/// Represents a git repo cloned according to a source definition
-#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq, Clone)]
-pub struct GitArtefact(pub(crate) std::path::PathBuf);

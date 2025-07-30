@@ -1,7 +1,7 @@
 // A BTree maintains key order
 use std::collections::BTreeMap;
 
-use crate::{Source, SourceArtefact};
+use crate::{SourceName, Source, Artefact};
 
 const CACHE_FILE_NAME: &str = "fetch-source-cache.json";
 
@@ -19,7 +19,7 @@ impl AsRef<std::path::Path> for Digest {
 /// The arguments required to fetch a missing source
 pub struct NamedFetchSpec {
     /// The name this source is known by
-    pub name: String,
+    pub name: SourceName,
     /// The source to be fetched
     pub source: Source,
     /// The destination for the fetched artefact
@@ -30,7 +30,7 @@ pub struct NamedFetchSpec {
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 pub struct Cache {
     #[serde(flatten)]
-    map: BTreeMap<Digest, SourceArtefact>,
+    map: BTreeMap<Digest, Artefact>,
     #[serde(skip)]
     cache_file: std::path::PathBuf,
 }
@@ -75,9 +75,9 @@ impl Cache {
 
     /// Partition a set of sources into those which are cached (giving their named digests) and
     /// those which are missing (giving their fetch specifications)
-    pub fn partition_by_status<S>(&self, sources: S) -> (Vec<(String, Digest)>, Vec<NamedFetchSpec>)
+    pub fn partition_by_status<S>(&self, sources: S) -> (Vec<(SourceName, Digest)>, Vec<NamedFetchSpec>)
     where
-        S: Iterator<Item = (String, Source)>,
+        S: Iterator<Item = (SourceName, Source)>,
     {
         sources.fold(
             (Vec::new(), Vec::new()),
@@ -101,9 +101,9 @@ impl Cache {
         &mut self,
         sources: Vec<NamedFetchSpec>,
         fetch: F,
-    ) -> (Vec<(String, Digest)>, Vec<crate::FetchError>)
+    ) -> (Vec<(SourceName, Digest)>, Vec<crate::FetchError>)
     where
-        F: FnOnce(Vec<NamedFetchSpec>) -> Vec<crate::FetchResult<(String, SourceArtefact)>>,
+        F: FnOnce(Vec<NamedFetchSpec>) -> Vec<crate::FetchResult<(SourceName, Artefact)>>,
     {
         fetch(sources).into_iter().fold(
             (Vec::new(), Vec::new()),
@@ -151,7 +151,7 @@ impl Cache {
 
     /// Cache a named source artefact and return its digest. Replaces the previous value for this
     /// source. Note that a source need not have a unique name.
-    pub fn insert(&mut self, artefact: SourceArtefact) -> Digest {
+    pub fn insert(&mut self, artefact: Artefact) -> Digest {
         let digest = Self::digest(artefact.as_ref());
         self.map.insert(digest.clone(), artefact);
         digest
@@ -163,22 +163,22 @@ impl Cache {
     }
 
     /// Retrieves a cached value for the given source, if it exists.
-    pub fn get<'a>(&'a self, source: &Source) -> Option<&'a SourceArtefact> {
+    pub fn get<'a>(&'a self, source: &Source) -> Option<&'a Artefact> {
         self.map.get(&Self::digest(source))
     }
 
     /// Get the artefact associated with a source's digest
-    pub fn get_digest<'a>(&'a self, digest: &Digest) -> Option<&'a SourceArtefact> {
+    pub fn get_digest<'a>(&'a self, digest: &Digest) -> Option<&'a Artefact> {
         self.map.get(digest)
     }
 
     /// Removes a cached value for the given source, returning it if it existed.
-    pub fn remove(&mut self, source: &Source) -> Option<SourceArtefact> {
+    pub fn remove(&mut self, source: &Source) -> Option<Artefact> {
         self.map.remove(&Self::digest(source))
     }
 
     /// Returns an iterator over the cached values.
-    pub fn values(&self) -> impl Iterator<Item = &SourceArtefact> {
+    pub fn values(&self) -> impl Iterator<Item = &Artefact> {
         self.map.values()
     }
 
@@ -194,8 +194,8 @@ impl Cache {
 }
 
 impl IntoIterator for Cache {
-    type Item = (Digest, SourceArtefact);
-    type IntoIter = std::collections::btree_map::IntoIter<Digest, SourceArtefact>;
+    type Item = (Digest, Artefact);
+    type IntoIter = std::collections::btree_map::IntoIter<Digest, Artefact>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.map.into_iter()
@@ -203,8 +203,8 @@ impl IntoIterator for Cache {
 }
 
 impl<'a> IntoIterator for &'a Cache {
-    type Item = (&'a Digest, &'a SourceArtefact);
-    type IntoIter = std::collections::btree_map::Iter<'a, Digest, SourceArtefact>;
+    type Item = (&'a Digest, &'a Artefact);
+    type IntoIter = std::collections::btree_map::Iter<'a, Digest, Artefact>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.map.iter()
@@ -240,18 +240,14 @@ mod tests {
     #[test]
     fn same_artefact_with_multiple_names_exists_once() {
         let mut cache = mock_cache_at! {"/foo/bar"};
-        let artefact_1: crate::SourceArtefact = crate::build_from_json! {
-            "tar": {
-                "source": { "tar": "www.example.com/test.tar.gz" },
-                "artefact": "AAAAAAAA",
-            }
+        let artefact_1: crate::Artefact = crate::build_from_json! {
+            "source": { "tar": "www.example.com/test.tar.gz" },
+            "path": "AAAAAAAA",
         }
         .unwrap();
-        let artefact_2: crate::SourceArtefact = crate::build_from_json! {
-            "tar": {
-                "source": { "tar": "www.example.com/test.tar.gz" },
-                "artefact": "BBBBBBBB",
-            }
+        let artefact_2: crate::Artefact = crate::build_from_json! {
+            "source": { "tar": "www.example.com/test.tar.gz" },
+            "path": "BBBBBBBB",
         }
         .unwrap();
         let digest_1 = cache.insert(artefact_1);

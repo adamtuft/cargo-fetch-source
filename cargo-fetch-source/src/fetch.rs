@@ -1,4 +1,4 @@
-use fetch_source::{FetchResult, NamedFetchSpec, Source, SourceArtefact};
+use fetch_source::{FetchResult, NamedFetchSpec, Source, SourceName, Artefact};
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
@@ -17,7 +17,7 @@ fn progress_bar_cb<'a>(mp: &'a MultiProgress) -> impl Fn(String) -> ProgressBar 
     }
 }
 
-fn format_success(name: &str, artefact: &SourceArtefact) -> (ProgressStyle, String) {
+fn format_success(name: &str, artefact: &Artefact) -> (ProgressStyle, String) {
     let path: &std::path::Path = artefact.as_ref();
     (
         ProgressStyle::with_template("{prefix:.cyan.bold/blue.bold} {msg:.cyan/blue}").unwrap(),
@@ -38,7 +38,7 @@ fn fetch_one(
     source: Source,
     bar: ProgressBar,
     artefact_path: &std::path::Path,
-) -> FetchResult<SourceArtefact> {
+) -> FetchResult<Artefact> {
     bar.enable_steady_tick(std::time::Duration::from_millis(120));
     bar.set_message(format!("⏳  {name} -> "));
     let result = source.fetch(artefact_path);
@@ -54,7 +54,7 @@ fn fetch_one(
 // Fetch all sources in parallel with `rayon`. Pair each source with its own progress bar.
 pub fn fetch_all_parallel(
     sources: Vec<NamedFetchSpec>,
-) -> Vec<FetchResult<(String, SourceArtefact)>> {
+) -> Vec<FetchResult<(SourceName, Artefact)>> {
     use rayon::prelude::*;
     let count = sources.len();
     let mp = MultiProgress::new();

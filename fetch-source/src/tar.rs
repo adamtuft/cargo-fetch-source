@@ -19,7 +19,7 @@ impl Tar {
     pub(crate) fn fetch<P: AsRef<std::path::Path>>(
         &self,
         dir: P,
-    ) -> Result<TarArtefact, FetchErrorInner> {
+    ) -> Result<std::path::PathBuf, FetchErrorInner> {
         let dir = dir.as_ref();
         if !dir.exists() {
             std::fs::create_dir_all(dir)?;
@@ -28,7 +28,7 @@ impl Tar {
         let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(bytes.as_ref()));
         // Unpack the contents of the archive directly into the provided directory
         archive.unpack(dir)?;
-        Ok(TarArtefact(dir.to_path_buf()))
+        Ok(dir.to_path_buf())
     }
 }
 
@@ -37,7 +37,3 @@ impl std::fmt::Display for Tar {
         write!(f, "{}", self.url)
     }
 }
-
-/// Represents a tar archive that has been downloaded and extracted.
-#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq, Clone)]
-pub struct TarArtefact(pub(crate) std::path::PathBuf);
