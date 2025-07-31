@@ -33,23 +33,20 @@ jobs:
       - name: Run cargo clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-  whitespace:
-    name: Check Trailing Whitespace
+  formatting:
+    name: Check Formatting
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Check for trailing whitespace
-        run: |
-          echo "Checking for trailing whitespace in source files..."
-          if grep -r '[[:space:]]$' --include="*.rs" --include="*.md" --include="*.yml" --include="*.yaml" --include="*.toml" .; then
-            echo "❌ Error: Trailing whitespace found in the above files"
-            echo "Please remove trailing whitespace from these files"
-            exit 1
-          else
-            echo "✅ No trailing whitespace found"
-          fi
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check code formatting
+        run: cargo fmt --check --verbose
 
   check:
     name: Cargo Check
