@@ -28,6 +28,9 @@ jobs:
       - name: Run unit tests
         run: cargo test --lib --all-features
 
+      - name: Run doctests
+        run: cargo test --doc --all-features
+
   integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest
