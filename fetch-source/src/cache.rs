@@ -3,77 +3,72 @@ use std::collections::BTreeMap;
 
 use crate::{Artefact, Source, SourceName};
 
-const CACHE_FILE_NAME: &str = "fetch-source-cache.json";
+// Namespace for ZSTs used with [`Path<T>`](Path)
+pub mod path {
+    /// The root directory of a cache
+    pub struct Cache;
+    /// The absolute path to an artefact
+    pub struct Artefact;
+    /// The relative path of an artefact in a cache
+    pub struct Relative;
+}
 
-/// An opaque wrapper around a cache directory path that can only be constructed
-/// from a valid Cache instance, emphasizing that this path has special meaning.
+// Use a sealed trait to restrict the types that can be used with `Path<T>`
+mod private {
+    pub trait SealedPathKind {}
+
+    impl SealedPathKind for super::path::Cache {}
+    impl SealedPathKind for super::path::Artefact {}
+    impl SealedPathKind for super::path::Relative {}
+}
+
+// A sealed trait used as a bound for Path<T>
+pub trait PathKind: private::SealedPathKind {}
+
+impl PathKind for path::Cache {}
+impl PathKind for path::Artefact {}
+impl PathKind for path::Relative {}
+
+/// A wrapper around special path types used with [`Cache`](crate::Cache) and
+/// [`CacheItems`](crate::CacheItems). Used to represent the root directory of a cache and the
+/// absolute and relative path of cached artefacts.
 #[derive(Debug, Clone)]
-pub struct CacheDir(std::path::PathBuf);
+pub struct Path<T: PathKind> {
+    path: std::path::PathBuf,
+    marker: std::marker::PhantomData<T>,
+}
 
-impl CacheDir {
-    /// Create a new CacheDir wrapper. This is private to ensure it can only be
-    /// created by Cache methods.
-    fn new(path: &std::path::Path) -> Self {
-        Self(path.to_path_buf())
+impl<T: PathKind> AsRef<std::path::Path> for Path<T> {
+    fn as_ref(&self) -> &std::path::Path {
+        &self.path
     }
+}
 
-    /// Join this cache directory with a relative path to create an absolute artefact path.
+impl<T: PathKind> Path<T> {
+    pub(crate) fn new(path: std::path::PathBuf) -> Self {
+        Self {
+            path,
+            marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl Path<path::Cache> {
+    /// Join a cache directory with a relative path to create an absolute artefact path.
     /// This method takes CacheRelativePath by value to emphasize the relationship between
     /// cache directories and relative paths within them.
-    pub fn join(&self, relative_path: CacheRelativePath) -> ArtefactPath {
-        ArtefactPath::new(self.0.join(relative_path.as_ref()))
+    pub fn join(&self, relative_path: Path<path::Relative>) -> Path<path::Artefact> {
+        Path::<path::Artefact>::new(self.path.join(relative_path.as_ref()))
     }
 }
 
-impl AsRef<std::path::Path> for CacheDir {
-    fn as_ref(&self) -> &std::path::Path {
-        &self.0
+impl From<Path<path::Artefact>> for std::path::PathBuf {
+    fn from(val: Path<path::Artefact>) -> Self {
+        val.path
     }
 }
 
-/// An opaque wrapper around a relative path within a cache that can only be constructed
-/// from CacheItems, emphasizing that this represents a cache-relative path.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CacheRelativePath(std::path::PathBuf);
-
-impl CacheRelativePath {
-    /// Create a new CacheRelativePath wrapper. This is private to ensure it can only be
-    /// created by CacheItems methods.
-    fn new(path: std::path::PathBuf) -> Self {
-        Self(path)
-    }
-}
-
-impl AsRef<std::path::Path> for CacheRelativePath {
-    fn as_ref(&self) -> &std::path::Path {
-        &self.0
-    }
-}
-
-/// An opaque wrapper around an absolute path to a cached artefact that can only be constructed
-/// by joining a CacheDir with a CacheRelativePath, emphasizing the relationship between these types.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ArtefactPath(std::path::PathBuf);
-
-impl ArtefactPath {
-    /// Create a new ArtefactPath wrapper. This is private to ensure it can only be
-    /// created by CacheDir methods.
-    fn new(path: std::path::PathBuf) -> Self {
-        Self(path)
-    }
-}
-
-impl AsRef<std::path::Path> for ArtefactPath {
-    fn as_ref(&self) -> &std::path::Path {
-        &self.0
-    }
-}
-
-impl From<ArtefactPath> for std::path::PathBuf {
-    fn from(val: ArtefactPath) -> Self {
-        val.0
-    }
-}
+const CACHE_FILE_NAME: &str = "fetch-source-cache.json";
 
 #[derive(
     Debug, Default, serde::Deserialize, serde::Serialize, PartialEq, Eq, PartialOrd, Ord, Clone,
@@ -91,16 +86,16 @@ pub type CachedList = Vec<(SourceName, Digest)>;
 
 /// Indicates that these sources are missing, along with the directory in the cache where they
 /// should be placed
-pub type MissingList = Vec<(SourceName, Source, CacheRelativePath)>;
+pub type MissingList = Vec<(SourceName, Source, Path<path::Relative>)>;
 
-/// The runtime cache data structure - serializable and handles all runtime operations
+/// Records data about the cached sources and where their artefacts are within a [`Cache`](Cache).
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 pub struct CacheItems {
     #[serde(flatten)]
     map: BTreeMap<Digest, Artefact>,
 }
 
-/// The persistence-aware cache - handles loading/saving and provides access to CacheItems
+/// Owns [`data`](CacheItems) about cached sources and is responsible for its persistence.
 #[derive(Debug)]
 pub struct Cache {
     items: CacheItems,
@@ -266,8 +261,8 @@ impl CacheItems {
     }
 
     /// Get the relative path for a source within a cache directory
-    pub fn relative_path(&self, source: &Source) -> CacheRelativePath {
-        CacheRelativePath::new(std::path::PathBuf::from(Self::digest(source).as_ref()))
+    fn relative_path(&self, source: &Source) -> Path<path::Relative> {
+        Path::<path::Relative>::new(std::path::PathBuf::from(Self::digest(source).as_ref()))
     }
 
     /// Get the digest of a source - this is CacheItems' responsibility for relative path calculation
@@ -304,14 +299,17 @@ impl CacheItems {
     pub fn fetch_missing<F, S>(
         &mut self,
         sources: S,
-        cache_dir: CacheDir,
+        cache_dir: Path<path::Cache>,
         fetch: F,
-    ) -> (Vec<(SourceName, ArtefactPath)>, Vec<crate::FetchError>)
+    ) -> (
+        Vec<(SourceName, Path<path::Artefact>)>,
+        Vec<crate::FetchError>,
+    )
     where
         S: Iterator<Item = (SourceName, Source)>,
         F: FnOnce(
-            Vec<(SourceName, Source, ArtefactPath)>,
-        ) -> Vec<crate::FetchResult<(SourceName, Artefact, ArtefactPath)>>,
+            Vec<(SourceName, Source, Path<path::Artefact>)>,
+        ) -> Vec<crate::FetchResult<(SourceName, Artefact, Path<path::Artefact>)>>,
     {
         // Partition sources into cached and missing using fold, directly creating ArtefactPaths
         let (mut cached, missing_sources) = sources.fold(
@@ -385,12 +383,12 @@ impl Cache {
     }
 
     /// Get the directory of the cache file
-    pub fn cache_dir(&self) -> CacheDir {
-        CacheDir::new(self.cache_file.parent().unwrap())
+    pub fn cache_dir(&self) -> Path<path::Cache> {
+        Path::<path::Cache>::new(self.cache_file.parent().unwrap().to_path_buf())
     }
 
     /// Calculate the absolute path where a fetched source would be stored within the cache
-    pub fn cached_path(&self, source: &Source) -> ArtefactPath {
+    pub fn cached_path(&self, source: &Source) -> Path<path::Artefact> {
         self.cache_dir().join(self.items.relative_path(source))
     }
 

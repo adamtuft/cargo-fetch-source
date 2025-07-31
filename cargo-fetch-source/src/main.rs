@@ -71,9 +71,12 @@ fn run() -> Result<(), error::AppError> {
 
 fn fetch(
     sources: fetch_source::SourcesTable,
-    cache_dir: fetch_source::CacheDir,
+    cache_dir: fetch_source::path::Cache,
     cache_items: &mut fetch_source::CacheItems,
-) -> (Vec<(String, fetch_source::ArtefactPath)>, Option<AppError>) {
+) -> (
+    Vec<(String, fetch_source::path::Artefact)>,
+    Option<AppError>,
+) {
     let num_sources = sources.len();
     let (cached, errors) =
         cache_items.fetch_missing(sources.into_iter(), cache_dir, fetch_all_parallel);
@@ -91,7 +94,7 @@ fn copy_artefact<P>(
     artefact_path: P,
 ) -> Result<(), AppError>
 where
-    P: AsRef<std::path::Path> + std::fmt::Debug,
+    P: AsRef<std::path::Path>,
 {
     if !artefact_path.as_ref().is_dir() {
         return Err(AppError::MissingArtefactDirectory {
@@ -100,7 +103,7 @@ where
         });
     }
     let dest = out_dir.join(Source::as_path_component(&name));
-    println!("{name}: COPY {artefact_path:#?} -> {dest:#?}");
+    println!("{name}: COPY {:#?} -> {dest:#?}", artefact_path.as_ref());
     dircpy::copy_dir(artefact_path.as_ref(), &dest).map_err(|err| {
         AppError::CopyArtefactFailed {
             src: artefact_path.as_ref().to_path_buf(),
