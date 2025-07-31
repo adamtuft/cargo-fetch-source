@@ -3,7 +3,7 @@
 //! These tests use real, well-known sources to ensure the library works
 //! with actual remote repositories and archives.
 
-use fetch_source::try_parse_toml;
+use fetch_source::{try_parse_toml, Cache};
 
 /// Test that we can successfully fetch the Syn crate repository from GitHub.
 /// This is a stable, well-known Git repository that should remain available.
@@ -192,5 +192,99 @@ fn test_fetch_multiple_sources() {
     // Cleanup
     if temp_dir_base.exists() {
         std::fs::remove_dir_all(&temp_dir_base).ok();
+    }
+}
+
+/// Test that sources can be cached when fetched and are available in the cache afterwards.
+/// This test verifies the caching functionality works correctly with real sources.
+#[test]
+fn test_source_caching() {
+    let cargo_toml = r#"
+[package.metadata.fetch-source]
+"syn-cached" = { git = "https://github.com/dtolnay/syn.git" }
+"#;
+
+    let sources = try_parse_toml(cargo_toml).expect("Failed to parse TOML");
+    assert_eq!(sources.len(), 1);
+
+    // Create a temporary directory for the cache
+    let cache_dir = std::env::temp_dir().join("fetch-source-test-cache");
+    if cache_dir.exists() {
+        std::fs::remove_dir_all(&cache_dir).expect("Failed to clean up cache dir");
+    }
+    std::fs::create_dir_all(&cache_dir).expect("Failed to create cache dir");
+
+    // Load the cache (should be empty initially)
+    let mut cache = Cache::load(&cache_dir).expect("Failed to load cache");
+    assert!(cache.is_empty(), "Cache should be empty initially");
+
+    // Check that the source is not cached yet
+    let syn_source = sources.get("syn-cached").expect("syn-cached source not found");
+    assert!(!cache.is_cached(syn_source), "Source should not be cached initially");
+
+    // Partition sources by cache status - should all be missing initially
+    let (cached_sources, missing_sources) = cache.partition_by_status(sources.into_iter());
+    assert_eq!(cached_sources.len(), 0, "No sources should be cached initially");
+    assert_eq!(missing_sources.len(), 1, "One source should be missing");
+
+    // Fetch the missing source using the cache
+    let (cached_digests, fetch_errors) = cache.fetch_missing(missing_sources, |specs| {
+        specs.into_iter().map(|spec| {
+            spec.source.fetch(&spec.path).map(|artefact| (spec.name, artefact))
+        }).collect()
+    });
+
+    // Verify the fetch succeeded
+    assert_eq!(fetch_errors.len(), 0, "No fetch errors should occur");
+    assert_eq!(cached_digests.len(), 1, "One source should be cached now");
+
+    let (cached_name, _cached_digest) = &cached_digests[0];
+    assert_eq!(cached_name, "syn-cached", "Cached source name should match");
+
+    // Verify the source is now cached
+    assert!(!cache.is_empty(), "Cache should not be empty after fetching");
+    assert_eq!(cache.len(), 1, "Cache should contain exactly one item");
+
+    // Test that we can retrieve the cached source
+    let syn_source_again = try_parse_toml(cargo_toml).expect("Failed to parse TOML again")
+        .into_iter().find(|(name, _)| name == "syn-cached").expect("syn-cached source not found").1;
+    
+    assert!(cache.is_cached(&syn_source_again), "Source should be cached now");
+    
+    let cached_artefact = cache.get(&syn_source_again).expect("Should be able to get cached artefact");
+    
+    // Verify the cached artefact path exists and contains expected content
+    let cached_path: &std::path::Path = cached_artefact.as_ref();
+    assert!(cached_path.exists(), "Cached artefact path should exist");
+    assert!(cached_path.is_dir(), "Cached artefact should be a directory");
+    
+    // Check for typical Rust project files in the cached directory
+    let cargo_toml_path = cached_path.join("Cargo.toml");
+    assert!(cargo_toml_path.exists(), "Cargo.toml should exist in cached syn repo");
+    
+    let src_dir = cached_path.join("src");
+    assert!(src_dir.exists(), "src directory should exist in cached syn repo");
+    assert!(src_dir.is_dir(), "src should be a directory");
+
+    // Save the cache to disk
+    cache.save().expect("Failed to save cache");
+    
+    // Verify cache file exists
+    assert!(Cache::exists(&cache_dir), "Cache file should exist after saving");
+
+    // Test that we can reload the cache and the source is still there
+    let reloaded_cache = Cache::load(&cache_dir).expect("Failed to reload cache");
+    assert_eq!(reloaded_cache.len(), 1, "Reloaded cache should contain one item");
+    assert!(reloaded_cache.is_cached(&syn_source_again), "Source should still be cached after reload");
+
+    // Test partitioning again - now the source should be cached
+    let sources_again = try_parse_toml(cargo_toml).expect("Failed to parse TOML for second test");
+    let (cached_sources_2, missing_sources_2) = reloaded_cache.partition_by_status(sources_again.into_iter());
+    assert_eq!(cached_sources_2.len(), 1, "One source should be cached after reload");
+    assert_eq!(missing_sources_2.len(), 0, "No sources should be missing after reload");
+
+    // Cleanup
+    if cache_dir.exists() {
+        std::fs::remove_dir_all(&cache_dir).ok();
     }
 }
