@@ -44,8 +44,8 @@ fn run() -> Result<(), error::AppError> {
             mut cache,
         } => {
             let cache_dir = cache.cache_dir();
-            let mut cache_items = cache.items_mut();
-            let (cached, err) = fetch(sources(&manifest_file)?, cache_dir, &mut cache_items);
+            let cache_items = cache.items_mut();
+            let (cached, err) = fetch(sources(&manifest_file)?, cache_dir, cache_items);
             cache.save().map_err(|err| AppError::CacheSaveFailed {
                 path: cache.cache_file().to_path_buf(),
                 err,

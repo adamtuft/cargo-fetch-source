@@ -86,6 +86,9 @@ impl AsRef<std::path::Path> for Digest {
     }
 }
 
+pub type CachedList = Vec<(SourceName, Digest)>;
+pub type MissingList = Vec<(SourceName, Source, CacheRelativePath)>;
+
 /// The runtime cache data structure - serializable and handles all runtime operations
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 pub struct CacheItems {
@@ -272,13 +275,7 @@ impl CacheItems {
 
     /// Partition a set of sources into those which are cached (giving their named digests) and
     /// those which are missing (giving their source and relative path within cache)
-    pub fn partition_by_status<S>(
-        &self,
-        sources: S,
-    ) -> (
-        Vec<(SourceName, Digest)>,
-        Vec<(SourceName, Source, CacheRelativePath)>,
-    )
+    pub fn partition_by_status<S>(&self, sources: S) -> (CachedList, MissingList)
     where
         S: Iterator<Item = (SourceName, Source)>,
     {
