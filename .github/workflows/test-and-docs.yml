@@ -1,5 +1,7 @@
 name: Test and Documentation
 
+# This workflow runs comprehensive tests and documentation builds 
+# when a review is requested on pull requests against main branch
 on:
   pull_request:
     types: [review_requested]

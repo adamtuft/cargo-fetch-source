@@ -1,5 +1,7 @@
 name: Lint and Check
 
+# This workflow runs basic code quality checks on pushes to dev branch 
+# and pull requests against main branch
 on:
   push:
     branches: [ dev ]
@@ -40,11 +42,13 @@ jobs:
 
       - name: Check for trailing whitespace
         run: |
+          echo "Checking for trailing whitespace in source files..."
           if grep -r '[[:space:]]$' --include="*.rs" --include="*.md" --include="*.yml" --include="*.yaml" --include="*.toml" .; then
-            echo "Error: Trailing whitespace found"
+            echo "❌ Error: Trailing whitespace found in the above files"
+            echo "Please remove trailing whitespace from these files"
             exit 1
           else
-            echo "No trailing whitespace found"
+            echo "✅ No trailing whitespace found"
           fi
 
   check:
