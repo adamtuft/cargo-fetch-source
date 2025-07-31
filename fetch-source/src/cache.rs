@@ -10,6 +10,12 @@ const CACHE_FILE_NAME: &str = "fetch-source-cache.json";
 #[derive(Debug, Clone)]
 pub struct CacheDir(PathBuf);
 
+impl AsRef<Path> for CacheDir {
+    fn as_ref(&self) -> &Path {
+        self.0.as_ref()
+    }
+}
+
 impl CacheDir {
     /// Get the absolute path to an artefact
     pub fn join(&self, relative: RelativePath) -> ArtefactPath {
@@ -20,6 +26,12 @@ impl CacheDir {
 /// The relative path of an artefact in a cache
 #[derive(Debug, Clone)]
 pub struct RelativePath(PathBuf);
+
+impl AsRef<Path> for RelativePath {
+    fn as_ref(&self) -> &Path {
+        self.0.as_ref()
+    }
+}
 
 /// The absolute path to a cached artefact
 #[derive(Debug, Clone)]
@@ -36,8 +48,8 @@ impl AsRef<Path> for ArtefactPath {
 )]
 pub struct Digest(String);
 
-impl AsRef<Path> for Digest {
-    fn as_ref(&self) -> &Path {
+impl AsRef<str> for Digest {
+    fn as_ref(&self) -> &str {
         self.0.as_ref()
     }
 }
@@ -475,7 +487,7 @@ mod tests {
             crate::build_from_json! { "tar": "www.example.com/test.tar.gz" }.unwrap();
         assert_eq!(
             PathBuf::from("/foo/bar/").join(CacheItems::digest(&source).as_ref()),
-            cache.cached_path(&source).0
+            cache.cached_path(&source).as_ref()
         );
     }
 
