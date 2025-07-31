@@ -265,12 +265,20 @@ impl CacheItems {
 
     /// Get the digest of a source - this is CacheItems' responsibility for relative path calculation
     pub fn digest(source: &Source) -> Digest {
-        Digest(sha256::digest(serde_json::to_string(source).expect("Serialisation of Source should never fail")))
+        Digest(sha256::digest(
+            serde_json::to_string(source).expect("Serialisation of Source should never fail"),
+        ))
     }
 
     /// Partition a set of sources into those which are cached (giving their named digests) and
     /// those which are missing (giving their source and relative path within cache)
-    pub fn partition_by_status<S>(&self, sources: S) -> (Vec<(SourceName, Digest)>, Vec<(SourceName, Source, CacheRelativePath)>)
+    pub fn partition_by_status<S>(
+        &self,
+        sources: S,
+    ) -> (
+        Vec<(SourceName, Digest)>,
+        Vec<(SourceName, Source, CacheRelativePath)>,
+    )
     where
         S: Iterator<Item = (SourceName, Source)>,
     {
@@ -299,26 +307,26 @@ impl CacheItems {
         fetch: F,
     ) -> (Vec<(SourceName, Digest)>, Vec<crate::FetchError>)
     where
-        F: FnOnce(Vec<(SourceName, Source, ArtefactPath)>) -> Vec<crate::FetchResult<(SourceName, Artefact)>>,
+        F: FnOnce(
+            Vec<(SourceName, Source, ArtefactPath)>,
+        ) -> Vec<crate::FetchResult<(SourceName, Artefact)>>,
     {
         // Partition sources into cached and missing using fold, directly creating ArtefactPaths
-        let (cached_results, missing_sources) = sources
-            .into_iter()
-            .fold(
-                (Vec::new(), Vec::new()),
-                |(mut cached, mut missing), (name, source)| {
-                    if self.is_cached(&source) {
-                        // Source is already cached - get its digest and add to cached results
-                        let digest = Self::digest(&source);
-                        cached.push((name, digest));
-                    } else {
-                        // Source is missing - create ArtefactPath directly
-                        let artefact_path = cache_dir.join(self.relative_path(&source));
-                        missing.push((name, source, artefact_path));
-                    }
-                    (cached, missing)
-                },
-            );
+        let (cached_results, missing_sources) = sources.into_iter().fold(
+            (Vec::new(), Vec::new()),
+            |(mut cached, mut missing), (name, source)| {
+                if self.is_cached(&source) {
+                    // Source is already cached - get its digest and add to cached results
+                    let digest = Self::digest(&source);
+                    cached.push((name, digest));
+                } else {
+                    // Source is missing - create ArtefactPath directly
+                    let artefact_path = cache_dir.join(self.relative_path(&source));
+                    missing.push((name, source, artefact_path));
+                }
+                (cached, missing)
+            },
+        );
 
         // Call the fetch function with the strongly-typed paths
         let (fetched_results, errors) = fetch(missing_sources).into_iter().fold(
@@ -335,7 +343,7 @@ impl CacheItems {
         // Combine cached and fetched results
         let mut all_results = cached_results;
         all_results.extend(fetched_results);
-        
+
         (all_results, errors)
     }
 }
@@ -360,10 +368,7 @@ impl Cache {
             Ok(Self::create_at(cache_file))
         } else {
             let items: CacheItems = serde_json::from_str(&std::fs::read_to_string(&cache_file)?)?;
-            Ok(Self {
-                items,
-                cache_file,
-            })
+            Ok(Self { items, cache_file })
         }
     }
 
@@ -407,7 +412,7 @@ impl Cache {
     }
 
     // Legacy compatibility methods - delegate to items
-    
+
     /// Cache a named source artefact and return its digest. Replaces the previous value for this
     /// source. Note that a source need not have a unique name.
     pub fn insert(&mut self, artefact: Artefact) -> Digest {
@@ -501,9 +506,7 @@ mod tests {
 
     // Helper macro for creating test caches
     macro_rules! mock_cache_at {
-        ($cache_file:expr) => {{
-            Cache::create_at(std::path::PathBuf::from($cache_file).join(CACHE_FILE_NAME))
-        }};
+        ($cache_file:expr) => {{ Cache::create_at(std::path::PathBuf::from($cache_file).join(CACHE_FILE_NAME)) }};
     }
 
     #[test]
@@ -546,17 +549,21 @@ mod tests {
             "path": "/some/path",
         }
         .unwrap();
-        
-        let source: Source = crate::build_from_json! { "tar": "www.example.com/test.tar.gz" }.unwrap();
+
+        let source: Source =
+            crate::build_from_json! { "tar": "www.example.com/test.tar.gz" }.unwrap();
         assert!(!items.is_cached(&source));
-        
+
         let digest = items.insert(artefact);
         assert!(items.is_cached(&source));
         assert_eq!(items.len(), 1);
-        
+
         let retrieved = items.get(&source).unwrap();
-        assert_eq!(<crate::Artefact as AsRef<std::path::Path>>::as_ref(retrieved), std::path::Path::new("/some/path"));
-        
+        assert_eq!(
+            <crate::Artefact as AsRef<std::path::Path>>::as_ref(retrieved),
+            std::path::Path::new("/some/path")
+        );
+
         let retrieved_by_digest = items.get_digest(&digest).unwrap();
         assert_eq!(retrieved, retrieved_by_digest);
     }
@@ -564,10 +571,10 @@ mod tests {
     #[test]
     fn cache_serialization_compatibility() {
         let cache = mock_cache_at! {"/cache/dir"};
-        
+
         // Cache should be serializable (for the cached() function in main.rs)
         let json = serde_json::to_string_pretty(&cache).unwrap();
-        
+
         // Should serialize the items, not the cache_file path
         assert!(json.contains("{}") || json.contains("[]")); // Empty cache
         assert!(!json.contains("cache_file"));
@@ -577,7 +584,7 @@ mod tests {
     fn cache_load_save_roundtrip() {
         let temp_dir = std::env::temp_dir().join("cache_test_migration");
         std::fs::create_dir_all(&temp_dir).unwrap();
-        
+
         // Create and populate cache
         let mut cache = Cache::create_at(temp_dir.join(CACHE_FILE_NAME));
         let artefact: crate::Artefact = crate::build_from_json! {
@@ -586,18 +593,22 @@ mod tests {
         }
         .unwrap();
         let _original_digest = cache.items_mut().insert(artefact);
-        
+
         // Save
         cache.save().unwrap();
-        
+
         // Load
         let loaded_cache = Cache::load(&temp_dir).unwrap();
         assert_eq!(loaded_cache.items().len(), 1);
-        
-        let source: Source = crate::build_from_json! { "tar": "www.example.com/test.tar.gz" }.unwrap();
+
+        let source: Source =
+            crate::build_from_json! { "tar": "www.example.com/test.tar.gz" }.unwrap();
         let loaded_artefact = loaded_cache.items().get(&source).unwrap();
-        assert_eq!(<crate::Artefact as AsRef<std::path::Path>>::as_ref(loaded_artefact), std::path::Path::new("/some/path"));
-        
+        assert_eq!(
+            <crate::Artefact as AsRef<std::path::Path>>::as_ref(loaded_artefact),
+            std::path::Path::new("/some/path")
+        );
+
         // Clean up
         std::fs::remove_dir_all(&temp_dir).ok();
     }

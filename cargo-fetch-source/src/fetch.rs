@@ -1,4 +1,4 @@
-use fetch_source::{Artefact, FetchResult, Source, SourceName, ArtefactPath};
+use fetch_source::{Artefact, ArtefactPath, FetchResult, Source, SourceName};
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 

@@ -87,8 +87,12 @@ fn fetch_sources(
 
     // Use the new optimized API: CacheItems::fetch_missing with direct ArtefactPath
     let cache_dir = cache.cache_dir();
-    let sources_vec: Vec<(fetch_source::SourceName, fetch_source::Source)> = sources.into_iter().collect();
-    let (cached, errors) = cache.items_mut().fetch_missing(sources_vec, cache_dir, fetch_all_parallel);
+    let sources_vec: Vec<(fetch_source::SourceName, fetch_source::Source)> =
+        sources.into_iter().collect();
+    let (cached, errors) =
+        cache
+            .items_mut()
+            .fetch_missing(sources_vec, cache_dir, fetch_all_parallel);
 
     cache.save().map_err(|err| AppError::CacheSaveFailed {
         err,
@@ -108,10 +112,12 @@ fn fetch_sources(
         }
         let dest = out_dir.join(Source::as_path_component(name));
         println!("{name}: COPY {cached_path:#?} -> {dest:#?}");
-        dircpy::copy_dir(cached_path.as_ref(), &dest).map_err(|err| AppError::CopyArtefactFailed {
-            src: cached_path.into(),
-            dst: dest,
-            err,
+        dircpy::copy_dir(cached_path.as_ref(), &dest).map_err(|err| {
+            AppError::CopyArtefactFailed {
+                src: cached_path.into(),
+                dst: dest,
+                err,
+            }
         })?;
     }
 
