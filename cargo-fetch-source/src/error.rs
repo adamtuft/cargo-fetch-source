@@ -25,7 +25,7 @@ pub enum AppError {
         #[source]
         err: fetch_source::SourceParseError,
     },
-    #[error("Failed to fetch source(s)")]
+    #[error("Failed to fetch one or more source(s)")]
     Fetch,
     #[error("failed to copy {} to {}", src.display(), dst.display())]
     CopyArtefactFailed {

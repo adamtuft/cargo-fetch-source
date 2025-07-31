@@ -1,4 +1,4 @@
-use fetch_source::{Artefact, ArtefactPath, FetchResult, Source, SourceName};
+use fetch_source::{Artefact, FetchResult, Source, SourceName};
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
@@ -33,11 +33,11 @@ fn format_failure(name: &str) -> (ProgressStyle, String) {
 }
 
 // Fetch a single source, reporting progress in the provided progress bar
-fn fetch_one(
+fn fetch_one<P: AsRef<std::path::Path>>(
     name: &str,
     source: Source,
     bar: ProgressBar,
-    artefact_path: &std::path::Path,
+    artefact_path: P,
 ) -> FetchResult<Artefact> {
     bar.enable_steady_tick(std::time::Duration::from_millis(120));
     bar.set_message(format!("⏳  {name} -> "));
@@ -52,9 +52,9 @@ fn fetch_one(
 }
 
 // Fetch all sources in parallel with `rayon`. Pair each source with its own progress bar.
-pub fn fetch_all_parallel(
-    sources: Vec<(SourceName, Source, ArtefactPath)>,
-) -> Vec<FetchResult<(SourceName, Artefact)>> {
+pub fn fetch_all_parallel<P: AsRef<std::path::Path> + Send>(
+    sources: Vec<(SourceName, Source, P)>,
+) -> Vec<FetchResult<(SourceName, Artefact, P)>> {
     use rayon::prelude::*;
     let count = sources.len();
     let mp = MultiProgress::new();
@@ -64,7 +64,8 @@ pub fn fetch_all_parallel(
         .enumerate()
         .map(|(k, (name, source, artefact_path))| {
             let bar = make_bar(format!("[{}/{}]", k + 1, count));
-            fetch_one(&name, source, bar, artefact_path.as_ref()).map(|artefact| (name, artefact))
+            fetch_one(&name, source, bar, artefact_path.as_ref())
+                .map(|artefact| (name, artefact, artefact_path))
         })
         .collect()
 }

@@ -300,40 +300,41 @@ impl CacheItems {
     /// Fetch and insert missing sources. Fetched sources are consumed and become cached artefacts.
     /// Return the digests of the cached source artefacts. Sources which couldn't be fetched are
     /// returned via errors.
-    pub fn fetch_missing<F>(
+    pub fn fetch_missing<F, S>(
         &mut self,
-        sources: Vec<(SourceName, Source)>,
+        sources: S,
         cache_dir: CacheDir,
         fetch: F,
-    ) -> (Vec<(SourceName, Digest)>, Vec<crate::FetchError>)
+    ) -> (Vec<(SourceName, ArtefactPath)>, Vec<crate::FetchError>)
     where
+        S: Iterator<Item = (SourceName, Source)>,
         F: FnOnce(
             Vec<(SourceName, Source, ArtefactPath)>,
-        ) -> Vec<crate::FetchResult<(SourceName, Artefact)>>,
+        ) -> Vec<crate::FetchResult<(SourceName, Artefact, ArtefactPath)>>,
     {
         // Partition sources into cached and missing using fold, directly creating ArtefactPaths
-        let (cached_results, missing_sources) = sources.into_iter().fold(
+        let (mut cached, missing_sources) = sources.fold(
             (Vec::new(), Vec::new()),
             |(mut cached, mut missing), (name, source)| {
+                let artefact_path = cache_dir.join(self.relative_path(&source));
                 if self.is_cached(&source) {
-                    // Source is already cached - get its digest and add to cached results
-                    let digest = Self::digest(&source);
-                    cached.push((name, digest));
+                    cached.push((name, artefact_path));
                 } else {
-                    // Source is missing - create ArtefactPath directly
-                    let artefact_path = cache_dir.join(self.relative_path(&source));
                     missing.push((name, source, artefact_path));
                 }
                 (cached, missing)
             },
         );
 
-        // Call the fetch function with the strongly-typed paths
+        // Fetch outstanding sources, caching artefacts and accumulating errors
         let (fetched_results, errors) = fetch(missing_sources).into_iter().fold(
             (Vec::new(), Vec::new()),
             |(mut cached, mut errors), result| {
                 match result {
-                    Ok((name, artefact)) => cached.push((name, self.insert(artefact))),
+                    Ok((name, artefact, artefact_path)) => {
+                        self.insert(artefact);
+                        cached.push((name, artefact_path))
+                    }
                     Err(error) => errors.push(error),
                 }
                 (cached, errors)
@@ -341,10 +342,9 @@ impl CacheItems {
         );
 
         // Combine cached and fetched results
-        let mut all_results = cached_results;
-        all_results.extend(fetched_results);
+        cached.extend(fetched_results);
 
-        (all_results, errors)
+        (cached, errors)
     }
 }
 

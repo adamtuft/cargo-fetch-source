@@ -107,7 +107,6 @@ pub enum ValidatedCommand {
         manifest_file: PathBuf,
         out_dir: PathBuf,
         cache: fetch_source::Cache,
-        threads: Option<u32>,
     },
     List {
         manifest_file: PathBuf,
@@ -207,11 +206,15 @@ impl TryFrom<Command> for ValidatedCommand {
                 let cache_dir = ValidatedArgs::detect_cache_dir(cache_dir)?;
                 let cache = ValidatedArgs::load_cache_from(cache_dir)?;
 
+                if let Some(threads) = threads {
+                    // SAFETY: only called in a serial region before any other threads exist.
+                    unsafe { std::env::set_var("RAYON_NUM_THREADS", format!("{threads}")) };
+                }
+
                 Ok(ValidatedCommand::Fetch {
                     manifest_file: ValidatedArgs::detect_manifest_file(manifest_file)?,
                     out_dir: out_dir.canonicalize()?,
                     cache,
-                    threads,
                 })
             }
             Command::List {

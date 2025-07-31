@@ -40,10 +40,24 @@ fn run() -> Result<(), error::AppError> {
     match args.command {
         args::ValidatedCommand::Fetch {
             out_dir,
-            threads,
             manifest_file,
-            cache,
-        } => fetch(&out_dir, threads, &manifest_file, cache),
+            mut cache,
+        } => {
+            let cache_dir = cache.cache_dir();
+            let mut cache_items = cache.items_mut();
+            let (cached, err) = fetch(sources(&manifest_file)?, cache_dir, &mut cache_items);
+            cache.save().map_err(|err| AppError::CacheSaveFailed {
+                path: cache.cache_file().to_path_buf(),
+                err,
+            })?;
+            for (name, artefact_path) in cached {
+                copy_artefact(&out_dir, name, artefact_path)?;
+            }
+            match err {
+                Some(e) => Err(e),
+                None => Ok(()),
+            }
+        }
         args::ValidatedCommand::List {
             format,
             manifest_file,
@@ -56,72 +70,45 @@ fn run() -> Result<(), error::AppError> {
 }
 
 fn fetch(
-    out_dir: &std::path::Path,
-    threads: Option<u32>,
-    manifest_file: &std::path::Path,
-    cache: fetch_source::Cache,
-) -> Result<(), AppError> {
-    let sources = sources(manifest_file)?;
+    sources: fetch_source::SourcesTable,
+    cache_dir: fetch_source::CacheDir,
+    cache_items: &mut fetch_source::CacheItems,
+) -> (Vec<(String, fetch_source::ArtefactPath)>, Option<AppError>) {
     let num_sources = sources.len();
-    match fetch_sources(sources, out_dir, cache, threads)? {
-        errors if errors.is_empty() => Ok(()),
-        errors => {
-            report_fetch_results(errors, num_sources);
-            Err(AppError::Fetch)
-        }
+    let (cached, errors) =
+        cache_items.fetch_missing(sources.into_iter(), cache_dir, fetch_all_parallel);
+    if errors.is_empty() {
+        (cached, None)
+    } else {
+        report_fetch_results(errors, num_sources);
+        (cached, Some(AppError::Fetch))
     }
 }
 
-// Fetch all sources and return any errors that occurred during fetching.
-// Update the cache with any successfully fetched artefacts.
-fn fetch_sources(
-    sources: fetch_source::SourcesTable,
+fn copy_artefact<P>(
     out_dir: &std::path::Path,
-    mut cache: fetch_source::Cache,
-    threads: Option<u32>,
-) -> Result<Vec<fetch_source::FetchError>, AppError> {
-    if let Some(threads) = threads {
-        // SAFETY: only called in a serial region before any other threads exist.
-        unsafe { std::env::set_var("RAYON_NUM_THREADS", format!("{threads}")) };
+    name: String,
+    artefact_path: P,
+) -> Result<(), AppError>
+where
+    P: AsRef<std::path::Path> + std::fmt::Debug,
+{
+    if !artefact_path.as_ref().is_dir() {
+        return Err(AppError::MissingArtefactDirectory {
+            name,
+            path: artefact_path.as_ref().to_path_buf(),
+        });
     }
-
-    // Use the new optimized API: CacheItems::fetch_missing with direct ArtefactPath
-    let cache_dir = cache.cache_dir();
-    let sources_vec: Vec<(fetch_source::SourceName, fetch_source::Source)> =
-        sources.into_iter().collect();
-    let (cached, errors) =
-        cache
-            .items_mut()
-            .fetch_missing(sources_vec, cache_dir, fetch_all_parallel);
-
-    cache.save().map_err(|err| AppError::CacheSaveFailed {
-        err,
-        path: cache.cache_file().to_path_buf(),
-    })?;
-
-    // Copy all cached sources to the output directory. Output dir is {out_dir}/${name_subdirs}
-    for (name, digest) in cached.iter() {
-        // Get the artefact for this digest
-        let artefact = cache.get_digest(digest).expect("digest should be in cache");
-        let cached_path = cache.cached_path(artefact.as_ref());
-        if !cached_path.as_ref().is_dir() {
-            return Err(AppError::MissingArtefactDirectory {
-                name: name.clone(),
-                path: cached_path.into(),
-            });
+    let dest = out_dir.join(Source::as_path_component(&name));
+    println!("{name}: COPY {artefact_path:#?} -> {dest:#?}");
+    dircpy::copy_dir(artefact_path.as_ref(), &dest).map_err(|err| {
+        AppError::CopyArtefactFailed {
+            src: artefact_path.as_ref().to_path_buf(),
+            dst: dest,
+            err,
         }
-        let dest = out_dir.join(Source::as_path_component(name));
-        println!("{name}: COPY {cached_path:#?} -> {dest:#?}");
-        dircpy::copy_dir(cached_path.as_ref(), &dest).map_err(|err| {
-            AppError::CopyArtefactFailed {
-                src: cached_path.into(),
-                dst: dest,
-                err,
-            }
-        })?;
-    }
-
-    Ok(errors)
+    })?;
+    Ok(())
 }
 
 // Report fetch results, including any errors and success messages.
