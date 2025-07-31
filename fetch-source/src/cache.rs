@@ -86,7 +86,11 @@ impl AsRef<std::path::Path> for Digest {
     }
 }
 
+/// Indicates a list of cached sources
 pub type CachedList = Vec<(SourceName, Digest)>;
+
+/// Indicates that these sources are missing, along with the directory in the cache where they
+/// should be placed
 pub type MissingList = Vec<(SourceName, Source, CacheRelativePath)>;
 
 /// The runtime cache data structure - serializable and handles all runtime operations
