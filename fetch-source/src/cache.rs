@@ -327,12 +327,17 @@ impl Cache {
     }
 
     /// Loads the cache from a JSON file in the given directory, creating a new cache if the file
-    /// does not exist.
+    /// does not exist. Requires that `cache_dir` exists.
+    ///
+    /// Returns an error if `cache_dir` doesn't exist, or if a deserialisation error occurs when
+    /// reading the cache file.
     pub fn load<P>(cache_dir: P) -> Result<Self, crate::Error>
     where
         P: AsRef<Path>,
     {
-        let cache_file = cache_dir.as_ref().join(CACHE_FILE_NAME);
+        // The cache dir is required to be the absolute path to the cache directory
+        let cache_dir = cache_dir.as_ref().canonicalize()?;
+        let cache_file = cache_dir.join(CACHE_FILE_NAME);
         if !cache_file.is_file() {
             Ok(Self::create_at(cache_file))
         } else {
