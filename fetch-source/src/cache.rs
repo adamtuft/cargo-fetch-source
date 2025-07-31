@@ -7,7 +7,7 @@ use crate::{Artefact, Source, SourceName};
 const CACHE_FILE_NAME: &str = "fetch-source-cache.json";
 
 /// The root directory of a cache
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CacheDir(PathBuf);
 
 impl AsRef<Path> for CacheDir {
@@ -24,7 +24,7 @@ impl CacheDir {
 }
 
 /// The relative path of an artefact in a cache
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RelativePath(PathBuf);
 
 impl AsRef<Path> for RelativePath {
@@ -34,7 +34,7 @@ impl AsRef<Path> for RelativePath {
 }
 
 /// The absolute path to a cached artefact
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ArtefactPath(PathBuf);
 
 impl AsRef<Path> for ArtefactPath {
@@ -54,6 +54,12 @@ impl AsRef<str> for Digest {
     }
 }
 
+impl std::fmt::Display for Digest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// Indicates a list of cached sources
 pub type CachedList = Vec<(SourceName, Digest)>;
 
@@ -66,19 +72,6 @@ pub type MissingList = Vec<(SourceName, Source, RelativePath)>;
 pub struct CacheItems {
     #[serde(flatten)]
     map: BTreeMap<Digest, Artefact>,
-}
-
-/// Owns [`data`](CacheItems) about cached sources and is responsible for its persistence.
-#[derive(Debug)]
-pub struct Cache {
-    items: CacheItems,
-    cache_file: PathBuf,
-}
-
-impl std::fmt::Display for Digest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
 }
 
 impl CacheItems {
@@ -317,6 +310,13 @@ impl CacheItems {
     }
 }
 
+/// Owns [`data`](CacheItems) about cached sources and is responsible for its persistence.
+#[derive(Debug)]
+pub struct Cache {
+    items: CacheItems,
+    cache_file: PathBuf,
+}
+
 impl Cache {
     /// Create a new cache at the specified file path.
     pub fn create_at(cache_file: PathBuf) -> Self {
@@ -465,15 +465,6 @@ impl<'a> IntoIterator for &'a Cache {
     }
 }
 
-impl serde::Serialize for Cache {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.items.serialize(serializer)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -540,18 +531,6 @@ mod tests {
 
         let retrieved_by_digest = items.get_digest(&digest).unwrap();
         assert_eq!(retrieved, retrieved_by_digest);
-    }
-
-    #[test]
-    fn cache_serialization_compatibility() {
-        let cache = mock_cache_at! {"/cache/dir"};
-
-        // Cache should be serializable (for the cached() function in main.rs)
-        let json = serde_json::to_string_pretty(&cache).unwrap();
-
-        // Should serialize the items, not the cache_file path
-        assert!(json.contains("{}") || json.contains("[]")); // Empty cache
-        assert!(!json.contains("cache_file"));
     }
 
     #[test]

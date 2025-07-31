@@ -180,7 +180,7 @@ fn cached(cache: &fetch_source::Cache) -> Result<(), AppError> {
     );
     println!(
         "{}",
-        serde_json::to_string_pretty(cache).expect("Failed to serialize cache")
+        serde_json::to_string_pretty(cache.items()).expect("Failed to serialize cache")
     );
     Ok(())
 }

@@ -166,7 +166,6 @@ mod source;
 #[cfg(feature = "tar")]
 mod tar;
 
-/// Aliases for special path types used by [`Cache`] and [`CacheItems`]
 pub use cache::{ArtefactPath, Cache, CacheDir, CacheItems, RelativePath};
 pub use error::{Error, FetchError};
 pub use git::Git;
