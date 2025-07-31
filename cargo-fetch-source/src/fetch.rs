@@ -20,7 +20,7 @@ fn progress_bar_cb<'a>(mp: &'a MultiProgress) -> impl Fn(String) -> ProgressBar 
 fn format_success(name: &str, artefact: &Artefact) -> (ProgressStyle, String) {
     let path: &std::path::Path = artefact.as_ref();
     (
-        ProgressStyle::with_template("{prefix:.cyan.bold/blue.bold} {msg:.cyan/blue}").unwrap(),
+        ProgressStyle::with_template("{prefix:.cyan.bold/blue.bold} {msg:.cyan/blue}").unwrap(), 
         format!("✅  {} -> {}", name, path.display()),
     )
 }

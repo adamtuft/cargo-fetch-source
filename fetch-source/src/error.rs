@@ -25,7 +25,7 @@ pub(crate) enum FetchErrorKind {
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),
 
-    #[error("subprocess '{command}' exited with status {status}\n{stderr}")]
+    #[error("subprocess '{command}' exited with status {status}\n{stderr}")] 
     Subprocess {
         command: String,
         status: std::process::ExitStatus,
