@@ -85,9 +85,10 @@ fn fetch_sources(
         unsafe { std::env::set_var("RAYON_NUM_THREADS", format!("{threads}")) };
     }
 
-    let (mut cached, missing) = cache.partition_by_status(sources.into_iter());
-    let (fetched, errors) = cache.fetch_missing(missing, fetch_all_parallel);
-    cached.extend(fetched);
+    // Use the new optimized API: CacheItems::fetch_missing with direct ArtefactPath
+    let cache_dir = cache.cache_dir();
+    let sources_vec: Vec<(fetch_source::SourceName, fetch_source::Source)> = sources.into_iter().collect();
+    let (cached, errors) = cache.items_mut().fetch_missing(sources_vec, cache_dir, fetch_all_parallel);
 
     cache.save().map_err(|err| AppError::CacheSaveFailed {
         err,
@@ -95,21 +96,20 @@ fn fetch_sources(
     })?;
 
     // Copy all cached sources to the output directory. Output dir is {out_dir}/${name_subdirs}
-    for (name, artefact) in cached.iter().map(|(n, d)| (n, cache.get_digest(d))) {
-        // SAFETY: can unwrap because we just got all these digests from the cache, so we know
-        // they are present
-        let artefact = artefact.unwrap();
+    for (name, digest) in cached.iter() {
+        // Get the artefact for this digest
+        let artefact = cache.get_digest(digest).expect("digest should be in cache");
         let cached_path = cache.cached_path(artefact.as_ref());
-        if !cached_path.is_dir() {
+        if !cached_path.as_ref().is_dir() {
             return Err(AppError::MissingArtefactDirectory {
                 name: name.clone(),
-                path: cached_path,
+                path: cached_path.into(),
             });
         }
         let dest = out_dir.join(Source::as_path_component(name));
         println!("{name}: COPY {cached_path:#?} -> {dest:#?}");
-        dircpy::copy_dir(&cached_path, &dest).map_err(|err| AppError::CopyArtefactFailed {
-            src: cached_path,
+        dircpy::copy_dir(cached_path.as_ref(), &dest).map_err(|err| AppError::CopyArtefactFailed {
+            src: cached_path.into(),
             dst: dest,
             err,
         })?;

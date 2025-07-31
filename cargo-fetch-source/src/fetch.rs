@@ -1,4 +1,4 @@
-use fetch_source::{Artefact, FetchResult, NamedFetchSpec, Source, SourceName};
+use fetch_source::{Artefact, FetchResult, Source, SourceName, ArtefactPath};
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
@@ -53,7 +53,7 @@ fn fetch_one(
 
 // Fetch all sources in parallel with `rayon`. Pair each source with its own progress bar.
 pub fn fetch_all_parallel(
-    sources: Vec<NamedFetchSpec>,
+    sources: Vec<(SourceName, Source, ArtefactPath)>,
 ) -> Vec<FetchResult<(SourceName, Artefact)>> {
     use rayon::prelude::*;
     let count = sources.len();
@@ -62,10 +62,9 @@ pub fn fetch_all_parallel(
     sources
         .into_par_iter()
         .enumerate()
-        .map(|(k, spec)| {
+        .map(|(k, (name, source, artefact_path))| {
             let bar = make_bar(format!("[{}/{}]", k + 1, count));
-            let name = spec.name;
-            fetch_one(&name, spec.source, bar, &spec.path).map(|artefact| (name, artefact))
+            fetch_one(&name, source, bar, artefact_path.as_ref()).map(|artefact| (name, artefact))
         })
         .collect()
 }
