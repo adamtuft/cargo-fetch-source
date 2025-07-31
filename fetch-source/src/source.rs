@@ -65,7 +65,6 @@ pub struct Artefact {
     // This is a combination of the fetched artefact and the source it was fetched from.
     // Note that the name associated with a source *must not* be stored in the cache. This avoids
     // using one name for a source but then unexpectedly returning another.
-
     /// The upstream source
     source: Source,
     /// The local copy
@@ -160,7 +159,7 @@ impl Source {
         };
         match result {
             Ok(path) => Ok(Artefact { source: self, path }),
-            Err(err) => Err(FetchError { err, source: self }),
+            Err(err) => Err(FetchError::new(err, self)),
         }
     }
 

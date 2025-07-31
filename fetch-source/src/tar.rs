@@ -1,6 +1,6 @@
 //! Support for declaring and fetching tar archives.
 
-use super::error::FetchErrorInner;
+use super::error::FetchErrorKind;
 
 /// Represents a remote tar archive to be downloaded and extracted.
 #[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq, Clone)]
@@ -19,7 +19,7 @@ impl Tar {
     pub(crate) fn fetch<P: AsRef<std::path::Path>>(
         &self,
         dir: P,
-    ) -> Result<std::path::PathBuf, FetchErrorInner> {
+    ) -> Result<std::path::PathBuf, FetchErrorKind> {
         let dir = dir.as_ref();
         if !dir.exists() {
             std::fs::create_dir_all(dir)?;

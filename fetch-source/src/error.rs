@@ -2,34 +2,16 @@
 
 /// Errors that occur during fetching
 #[derive(Debug, thiserror::Error)]
-#[error("Failed to fetch source: {err}")]
+#[error("failed to fetch source")]
 pub struct FetchError {
+    source: crate::Source,
     #[source]
-    pub(crate) err: FetchErrorInner,
-    pub(crate) source: crate::Source,
+    err: FetchErrorKind,
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error(transparent)]
-pub struct FetchErrorInner {
-    inner: FetchErrorKind,
-}
-
-impl FetchErrorInner {
-    /// Manual constructor for a subprocess error. This exists because there's no lower error type
-    /// to forward.
-    pub(crate) fn subprocess(
-        command: String,
-        status: std::process::ExitStatus,
-        cause: anyhow::Error,
-    ) -> Self {
-        Self {
-            inner: FetchErrorKind::Subprocess {
-                command,
-                status,
-                cause,
-            },
-        }
+impl FetchError {
+    pub fn new(err: FetchErrorKind, source: crate::Source) -> Self {
+        Self { source, err }
     }
 }
 
@@ -43,23 +25,20 @@ pub(crate) enum FetchErrorKind {
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),
 
-    #[error("Command '{command}' exited with status {status}")]
+    #[error("subprocess '{command}' exited with status {status}\n{stderr}")]
     Subprocess {
         command: String,
         status: std::process::ExitStatus,
-        #[source]
-        cause: anyhow::Error,
+        stderr: String,
     },
 }
 
-// Blanket implementation for all variants of ErrorKind with a #[from] attribute
-impl<T> From<T> for FetchErrorInner
-where
-    FetchErrorKind: From<T>,
-{
-    fn from(e: T) -> Self {
-        Self {
-            inner: FetchErrorKind::from(e),
+impl FetchErrorKind {
+    pub fn subprocess(command: String, status: std::process::ExitStatus, stderr: String) -> Self {
+        Self::Subprocess {
+            command,
+            status,
+            stderr,
         }
     }
 }

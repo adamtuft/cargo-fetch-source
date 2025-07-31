@@ -2,7 +2,7 @@
 
 use std::io::Read;
 
-use super::error::FetchErrorInner;
+use crate::error::FetchErrorKind;
 
 #[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq, Clone)]
 pub enum GitReference {
@@ -56,7 +56,7 @@ impl Git {
     pub(crate) fn fetch<P: AsRef<std::path::Path>>(
         &self,
         dir: P,
-    ) -> Result<std::path::PathBuf, FetchErrorInner> {
+    ) -> Result<std::path::PathBuf, FetchErrorKind> {
         if !dir.as_ref().exists() {
             std::fs::create_dir_all(&dir)?;
         }
@@ -80,8 +80,7 @@ impl Git {
                 command.push_str("--recurse-submodules --shallow-submodules");
             }
             command.push_str(&format!("{} {}", self.url, full_path.display()));
-            let root_cause = anyhow::anyhow!(stderr);
-            Err(FetchErrorInner::subprocess(command, status, root_cause))
+            Err(FetchErrorKind::subprocess(command, status, stderr))
         }
     }
 

@@ -24,7 +24,6 @@
 //! - `tar`: Download and extract `.tar.gz` archives. This is an optional feature because it uses the
 //!   [`reqwest`] crate which brings quite a few more dependencies.
 //! - `rayon`: Fetch sources in parallel with [`rayon`].
-//! - `async`: Enable fetching `tar` sources asynchronously.
 //!
 //! [`reqwest`]: https://crates.io/crates/reqwest
 //! [`rayon`]: https://crates.io/crates/rayon
@@ -100,46 +99,46 @@ fetch_source::try_parse_toml(cargo_toml)?.into_par_iter()
 )]
 //!
 //! # Caching Sources
-//! 
+//!
 //! Cache sources used by multiple projects for efficient sharing between projects. If two projects
 //! have the same definition of a source (excluding the source's name) then they will use the same
 //! cached copy of the source.
-//! 
+//!
 //! ```rust
 //! # use fetch_source::Cache;
 //! # fn main() -> Result<(), fetch_source::Error> {
 //! let cache = Cache::load(std::env::temp_dir())?;
-//! 
+//!
 //! let project1 = r#"
 //! [package.metadata.fetch-source]
 //! "syn::latest" = { git = "https://github.com/dtolnay/syn.git" }
 //! "#;
-//! 
+//!
 //! let sources1 = fetch_source::try_parse_toml(project1)?;
 //! // Check where this source would be cached
 //! let cache_latest = cache.cached_path(&sources1.get("syn::latest").unwrap());
-//! 
+//!
 //! // Note the re-use of 'syn::latest' with a different definition!
 //! let project2 = r#"
 //! [package.metadata.fetch-source]
 //! "syn::greatest" = { git = "https://github.com/dtolnay/syn.git" }
 //! "syn::latest" = { git = "https://github.com/dtolnay/syn.git", branch = "dev" }
 //! "#;
-//! 
+//!
 //! let sources2 = fetch_source::try_parse_toml(project2)?;
 //! let cache_greatest = cache.cached_path(&sources2.get("syn::greatest").unwrap());
 //! let cache_dev = cache.cached_path(&sources2.get("syn::latest").unwrap());
-//! 
+//!
 //! // The same source by a different name from a different project is the same in the cache
 //! assert_eq!(cache_latest, cache_greatest);
-//! 
+//!
 //! // The name doesn't uniquely identify a source - only the definition of the source matters
 //! assert_ne!(cache_latest, cache_dev);
-//! 
+//!
 //! # Ok(())
 //! # }
 //! ```
-//! 
+//!
 //! # Declaring sources
 //!
 //! The keys in the `package.metadata.fetch-source` table name a remote source. They can include
@@ -171,7 +170,7 @@ pub use cache::{Cache, NamedFetchSpec};
 pub use error::{Error, FetchError};
 pub use git::Git;
 pub use source::{
-    FetchResult, Source, SourceName, Artefact, SourceParseError, SourcesTable, try_parse_toml,
+    Artefact, FetchResult, Source, SourceName, SourceParseError, SourcesTable, try_parse_toml,
 };
 #[cfg(feature = "tar")]
 pub use tar::Tar;

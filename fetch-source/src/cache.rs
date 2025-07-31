@@ -41,10 +41,6 @@ impl std::fmt::Display for Digest {
     }
 }
 
-fn __digest__<D: serde::Serialize>(data: &D) -> Digest {
-    Digest(sha256::digest(serde_json::to_string(data).unwrap()))
-}
-
 impl Cache {
     fn create_at(cache_file: std::path::PathBuf) -> Self {
         Self {
@@ -70,7 +66,7 @@ impl Cache {
 
     /// Get the digest of a source
     fn digest(source: &Source) -> Digest {
-        __digest__(source)
+        Digest(sha256::digest(serde_json::to_string(source).expect("Serialisation of Source should never fail")))
     }
 
     /// Partition a set of sources into those which are cached (giving their named digests) and
