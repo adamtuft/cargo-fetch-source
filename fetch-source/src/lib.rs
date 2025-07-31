@@ -167,16 +167,7 @@ mod source;
 mod tar;
 
 /// Aliases for special path types used by [`Cache`] and [`CacheItems`]
-pub mod path {
-    /// An absolute path to the root of a cache
-    pub type Cache = crate::cache::Path<crate::cache::path::Cache>;
-    /// An absolute path to a cached artefact
-    pub type Artefact = crate::cache::Path<crate::cache::path::Artefact>;
-    /// The relative path of an artefact in a cache
-    pub type Relative = crate::cache::Path<crate::cache::path::Relative>;
-}
-
-pub use cache::{Cache, CacheItems};
+pub use cache::{ArtefactPath, Cache, CacheDir, CacheItems, RelativePath};
 pub use error::{Error, FetchError};
 pub use git::Git;
 pub use source::{

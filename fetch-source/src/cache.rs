@@ -1,82 +1,43 @@
 // A BTree maintains key order
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 use crate::{Artefact, Source, SourceName};
 
-// Namespace for ZSTs used with [`Path<T>`](Path)
-pub mod path {
-    /// The root directory of a cache
-    pub struct Cache;
-    /// The absolute path to an artefact
-    pub struct Artefact;
-    /// The relative path of an artefact in a cache
-    pub struct Relative;
-}
-
-// Use a sealed trait to restrict the types that can be used with `Path<T>`
-mod private {
-    pub trait SealedPathKind {}
-
-    impl SealedPathKind for super::path::Cache {}
-    impl SealedPathKind for super::path::Artefact {}
-    impl SealedPathKind for super::path::Relative {}
-}
-
-// A sealed trait used as a bound for Path<T>
-pub trait PathKind: private::SealedPathKind {}
-
-impl PathKind for path::Cache {}
-impl PathKind for path::Artefact {}
-impl PathKind for path::Relative {}
-
-/// A wrapper around special path types used with [`Cache`](crate::Cache) and
-/// [`CacheItems`](crate::CacheItems). Used to represent the root directory of a cache and the
-/// absolute and relative path of cached artefacts.
-#[derive(Debug, Clone)]
-pub struct Path<T: PathKind> {
-    path: std::path::PathBuf,
-    marker: std::marker::PhantomData<T>,
-}
-
-impl<T: PathKind> AsRef<std::path::Path> for Path<T> {
-    fn as_ref(&self) -> &std::path::Path {
-        &self.path
-    }
-}
-
-impl<T: PathKind> Path<T> {
-    pub(crate) fn new(path: std::path::PathBuf) -> Self {
-        Self {
-            path,
-            marker: std::marker::PhantomData,
-        }
-    }
-}
-
-impl Path<path::Cache> {
-    /// Join a cache directory with a relative path to create an absolute artefact path.
-    /// This method takes CacheRelativePath by value to emphasize the relationship between
-    /// cache directories and relative paths within them.
-    pub fn join(&self, relative_path: Path<path::Relative>) -> Path<path::Artefact> {
-        Path::<path::Artefact>::new(self.path.join(relative_path.as_ref()))
-    }
-}
-
-impl From<Path<path::Artefact>> for std::path::PathBuf {
-    fn from(val: Path<path::Artefact>) -> Self {
-        val.path
-    }
-}
-
 const CACHE_FILE_NAME: &str = "fetch-source-cache.json";
+
+/// The root directory of a cache
+#[derive(Debug, Clone)]
+pub struct CacheDir(PathBuf);
+
+impl CacheDir {
+    /// Get the absolute path to an artefact
+    pub fn join(&self, relative: RelativePath) -> ArtefactPath {
+        ArtefactPath(self.0.join(relative.0))
+    }
+}
+
+/// The relative path of an artefact in a cache
+#[derive(Debug, Clone)]
+pub struct RelativePath(PathBuf);
+
+/// The absolute path to a cached artefact
+#[derive(Debug, Clone)]
+pub struct ArtefactPath(PathBuf);
+
+impl AsRef<Path> for ArtefactPath {
+    fn as_ref(&self) -> &Path {
+        self.0.as_ref()
+    }
+}
 
 #[derive(
     Debug, Default, serde::Deserialize, serde::Serialize, PartialEq, Eq, PartialOrd, Ord, Clone,
 )]
 pub struct Digest(String);
 
-impl AsRef<std::path::Path> for Digest {
-    fn as_ref(&self) -> &std::path::Path {
+impl AsRef<Path> for Digest {
+    fn as_ref(&self) -> &Path {
         self.0.as_ref()
     }
 }
@@ -86,7 +47,7 @@ pub type CachedList = Vec<(SourceName, Digest)>;
 
 /// Indicates that these sources are missing, along with the directory in the cache where they
 /// should be placed
-pub type MissingList = Vec<(SourceName, Source, Path<path::Relative>)>;
+pub type MissingList = Vec<(SourceName, Source, RelativePath)>;
 
 /// Records data about the cached sources and where their artefacts are within a [`Cache`](Cache).
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
@@ -99,7 +60,7 @@ pub struct CacheItems {
 #[derive(Debug)]
 pub struct Cache {
     items: CacheItems,
-    cache_file: std::path::PathBuf,
+    cache_file: PathBuf,
 }
 
 impl std::fmt::Display for Digest {
@@ -261,8 +222,8 @@ impl CacheItems {
     }
 
     /// Get the relative path for a source within a cache directory
-    fn relative_path(&self, source: &Source) -> Path<path::Relative> {
-        Path::<path::Relative>::new(std::path::PathBuf::from(Self::digest(source).as_ref()))
+    fn relative_path(&self, source: &Source) -> RelativePath {
+        RelativePath(PathBuf::from(Self::digest(source).as_ref()))
     }
 
     /// Get the digest of a source - this is CacheItems' responsibility for relative path calculation
@@ -299,17 +260,14 @@ impl CacheItems {
     pub fn fetch_missing<F, S>(
         &mut self,
         sources: S,
-        cache_dir: Path<path::Cache>,
+        cache_dir: CacheDir,
         fetch: F,
-    ) -> (
-        Vec<(SourceName, Path<path::Artefact>)>,
-        Vec<crate::FetchError>,
-    )
+    ) -> (Vec<(SourceName, ArtefactPath)>, Vec<crate::FetchError>)
     where
         S: Iterator<Item = (SourceName, Source)>,
         F: FnOnce(
-            Vec<(SourceName, Source, Path<path::Artefact>)>,
-        ) -> Vec<crate::FetchResult<(SourceName, Artefact, Path<path::Artefact>)>>,
+            Vec<(SourceName, Source, ArtefactPath)>,
+        ) -> Vec<crate::FetchResult<(SourceName, Artefact, ArtefactPath)>>,
     {
         // Partition sources into cached and missing using fold, directly creating ArtefactPaths
         let (mut cached, missing_sources) = sources.fold(
@@ -349,7 +307,7 @@ impl CacheItems {
 
 impl Cache {
     /// Create a new cache at the specified file path.
-    pub fn create_at(cache_file: std::path::PathBuf) -> Self {
+    pub fn create_at(cache_file: PathBuf) -> Self {
         Self {
             items: CacheItems::new(),
             cache_file,
@@ -360,7 +318,7 @@ impl Cache {
     /// does not exist.
     pub fn load<P>(cache_dir: P) -> Result<Self, crate::Error>
     where
-        P: AsRef<std::path::Path>,
+        P: AsRef<Path>,
     {
         let cache_file = cache_dir.as_ref().join(CACHE_FILE_NAME);
         if !cache_file.is_file() {
@@ -378,17 +336,17 @@ impl Cache {
     }
 
     /// Get the cache file path.
-    pub fn cache_file(&self) -> &std::path::Path {
+    pub fn cache_file(&self) -> &Path {
         &self.cache_file
     }
 
     /// Get the directory of the cache file
-    pub fn cache_dir(&self) -> Path<path::Cache> {
-        Path::<path::Cache>::new(self.cache_file.parent().unwrap().to_path_buf())
+    pub fn cache_dir(&self) -> CacheDir {
+        CacheDir(self.cache_file.parent().unwrap().to_path_buf())
     }
 
     /// Calculate the absolute path where a fetched source would be stored within the cache
-    pub fn cached_path(&self, source: &Source) -> Path<path::Artefact> {
+    pub fn cached_path(&self, source: &Source) -> ArtefactPath {
         self.cache_dir().join(self.items.relative_path(source))
     }
 
@@ -405,7 +363,7 @@ impl Cache {
     /// Check whether the cache file exists in the given directory.
     pub fn exists<P>(cache_dir: P) -> bool
     where
-        P: AsRef<std::path::Path>,
+        P: AsRef<Path>,
     {
         cache_dir.as_ref().join(CACHE_FILE_NAME).is_file()
     }
@@ -505,7 +463,7 @@ mod tests {
 
     // Helper macro for creating test caches
     macro_rules! mock_cache_at {
-        ($cache_file:expr) => {{ Cache::create_at(std::path::PathBuf::from($cache_file).join(CACHE_FILE_NAME)) }};
+        ($cache_file:expr) => {{ Cache::create_at(PathBuf::from($cache_file).join(CACHE_FILE_NAME)) }};
     }
 
     #[test]
@@ -516,8 +474,8 @@ mod tests {
         let source: Source =
             crate::build_from_json! { "tar": "www.example.com/test.tar.gz" }.unwrap();
         assert_eq!(
-            std::path::PathBuf::from("/foo/bar/").join(CacheItems::digest(&source).as_ref()),
-            cache.cached_path(&source).as_ref()
+            PathBuf::from("/foo/bar/").join(CacheItems::digest(&source).as_ref()),
+            cache.cached_path(&source).0
         );
     }
 
@@ -559,8 +517,8 @@ mod tests {
 
         let retrieved = items.get(&source).unwrap();
         assert_eq!(
-            <crate::Artefact as AsRef<std::path::Path>>::as_ref(retrieved),
-            std::path::Path::new("/some/path")
+            <crate::Artefact as AsRef<Path>>::as_ref(retrieved),
+            Path::new("/some/path")
         );
 
         let retrieved_by_digest = items.get_digest(&digest).unwrap();
@@ -604,8 +562,8 @@ mod tests {
             crate::build_from_json! { "tar": "www.example.com/test.tar.gz" }.unwrap();
         let loaded_artefact = loaded_cache.items().get(&source).unwrap();
         assert_eq!(
-            <crate::Artefact as AsRef<std::path::Path>>::as_ref(loaded_artefact),
-            std::path::Path::new("/some/path")
+            <crate::Artefact as AsRef<Path>>::as_ref(loaded_artefact),
+            Path::new("/some/path")
         );
 
         // Clean up
