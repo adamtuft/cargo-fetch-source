@@ -69,9 +69,9 @@ impl AsRef<std::path::Path> for ArtefactPath {
     }
 }
 
-impl Into<std::path::PathBuf> for ArtefactPath {
-    fn into(self) -> std::path::PathBuf {
-        self.0
+impl From<ArtefactPath> for std::path::PathBuf {
+    fn from(val: ArtefactPath) -> Self {
+        val.0
     }
 }
 
