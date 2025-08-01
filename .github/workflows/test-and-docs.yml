@@ -1,11 +1,11 @@
 name: Test and Documentation
 
-# This workflow runs comprehensive tests and documentation builds 
-# when a review is requested on pull requests against main branch
+# This workflow runs tests against PRs against main and dev. Don't run on feature/**
+# branches, as these checks will be run when the branch is ready to review for PR
 on:
   pull_request:
-    types: [review_requested]
-    branches: [ main ]
+    types: [opened, synchronize, review_requested]
+    branches: [ main, dev ]
 
 jobs:
   unit-tests:

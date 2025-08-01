@@ -1,12 +1,13 @@
 name: Lint and Check
 
-# This workflow runs basic code quality checks on pushes to dev branch 
-# and pull requests against main branch
+# Basic code quality checks to be run on any push to dev or feature/** branches, and
+# on version tags. Also run for PRs against main & dev.
 on:
   push:
-    branches: [ dev ]
+    branches: [ dev, 'feature/**' ]
+    tags: [ 'v*' ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, dev ]
 
 jobs:
   clippy:
