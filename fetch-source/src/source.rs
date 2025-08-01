@@ -83,6 +83,12 @@ impl AsRef<Source> for Artefact {
     }
 }
 
+impl AsRef<Source> for Source {
+    fn as_ref(&self) -> &Source {
+        self
+    }
+}
+
 /// Allowed source variants.
 #[derive(Debug, PartialEq, Eq, Hash)]
 enum SourceVariant {

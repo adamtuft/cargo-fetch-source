@@ -271,19 +271,33 @@ fn test_source_caching() {
 
     // Load the cache (should be empty initially)
     let mut cache = Cache::load(&cache_dir).expect("Failed to load cache");
-    assert!(cache.is_empty(), "Cache should be empty initially");
+    assert!(cache.items().is_empty(), "Cache should be empty initially");
 
     // Check that the source is not cached yet
     let syn_source = sources
         .get("syn-cached")
         .expect("syn-cached source not found");
     assert!(
-        !cache.is_cached(syn_source),
+        !cache.items().is_cached(syn_source),
         "Source should not be cached initially"
     );
 
-    // Partition sources by cache status - should all be missing initially
-    let (cached_sources, missing_sources) = cache.partition_by_status(sources.into_iter());
+    // Manually partition sources by cache status since there's no partition_by_status method
+    let mut cached_sources: Vec<String> = Vec::new();
+    let mut missing_sources: Vec<(String, fetch_source::Source)> = Vec::new();
+    
+    for (name, source) in sources {
+        match cache.items().status(&source) {
+            fetch_source::CacheStatus::Cached(_) => {
+                // For cached sources, we don't need the digest in this test
+                cached_sources.push(name.clone());
+            }
+            fetch_source::CacheStatus::Missing(_) => {
+                missing_sources.push((name.clone(), source));
+            }
+        }
+    }
+    
     assert_eq!(
         cached_sources.len(),
         0,
@@ -292,30 +306,35 @@ fn test_source_caching() {
     assert_eq!(missing_sources.len(), 1, "One source should be missing");
 
     // Fetch the missing source using the cache
-    let (cached_digests, fetch_errors) = cache.fetch_missing(missing_sources, |specs| {
-        specs
-            .into_iter()
-            .map(|spec| {
-                spec.source
-                    .fetch(&spec.path)
-                    .map(|artefact| (spec.name, artefact))
-            })
-            .collect()
-    });
+    let cache_dir_handle = cache.cache_dir();
+    let (cached_digests, fetch_errors) = cache.items_mut().fetch_missing(
+        missing_sources.into_iter(), 
+        cache_dir_handle,
+        |specs| {
+            specs
+                .into_iter()
+                .map(|(name, source, artefact_path)| {
+                    source
+                        .fetch(artefact_path.as_ref())
+                        .map(|artefact| (name, artefact, artefact_path))
+                })
+                .collect()
+        }
+    );
 
     // Verify the fetch succeeded
     assert_eq!(fetch_errors.len(), 0, "No fetch errors should occur");
     assert_eq!(cached_digests.len(), 1, "One source should be cached now");
 
-    let (cached_name, _cached_digest) = &cached_digests[0];
+    let (cached_name, _cached_digest, _cached_path) = &cached_digests[0];
     assert_eq!(cached_name, "syn-cached", "Cached source name should match");
 
     // Verify the source is now cached
     assert!(
-        !cache.is_empty(),
+        !cache.items().is_empty(),
         "Cache should not be empty after fetching"
     );
-    assert_eq!(cache.len(), 1, "Cache should contain exactly one item");
+    assert_eq!(cache.items().len(), 1, "Cache should contain exactly one item");
 
     // Test that we can retrieve the cached source
     let syn_source_again = try_parse_toml(cargo_toml)
@@ -326,11 +345,11 @@ fn test_source_caching() {
         .1;
 
     assert!(
-        cache.is_cached(&syn_source_again),
+        cache.items().is_cached(&syn_source_again),
         "Source should be cached now"
     );
 
-    let cached_artefact = cache
+    let cached_artefact = cache.items()
         .get(&syn_source_again)
         .expect("Should be able to get cached artefact");
 
@@ -368,19 +387,33 @@ fn test_source_caching() {
     // Test that we can reload the cache and the source is still there
     let reloaded_cache = Cache::load(&cache_dir).expect("Failed to reload cache");
     assert_eq!(
-        reloaded_cache.len(),
+        reloaded_cache.items().len(),
         1,
         "Reloaded cache should contain one item"
     );
     assert!(
-        reloaded_cache.is_cached(&syn_source_again),
+        reloaded_cache.items().is_cached(&syn_source_again),
         "Source should still be cached after reload"
     );
 
     // Test partitioning again - now the source should be cached
     let sources_again = try_parse_toml(cargo_toml).expect("Failed to parse TOML for second test");
-    let (cached_sources_2, missing_sources_2) =
-        reloaded_cache.partition_by_status(sources_again.into_iter());
+    
+    // Manually partition again for the second test
+    let mut cached_sources_2: Vec<String> = Vec::new();
+    let mut missing_sources_2: Vec<(String, fetch_source::Source)> = Vec::new();
+    
+    for (name, source) in sources_again {
+        match reloaded_cache.items().status(&source) {
+            fetch_source::CacheStatus::Cached(_) => {
+                cached_sources_2.push(name.clone());
+            }
+            fetch_source::CacheStatus::Missing(_) => {
+                missing_sources_2.push((name.clone(), source));
+            }
+        }
+    }
+    
     assert_eq!(
         cached_sources_2.len(),
         1,

@@ -43,6 +43,7 @@ impl AsRef<Path> for ArtefactPath {
     }
 }
 
+/// The digest associated with the definition of a [`Source`]
 #[derive(
     Debug, Default, serde::Deserialize, serde::Serialize, PartialEq, Eq, PartialOrd, Ord, Clone,
 )]
@@ -60,14 +61,36 @@ impl std::fmt::Display for Digest {
     }
 }
 
-/// Indicates a list of cached sources
-pub type CachedList = Vec<(SourceName, Digest)>;
-
-/// Indicates that these sources are missing, along with the directory in the cache where they
-/// should be placed
-pub type MissingList = Vec<(SourceName, Source, RelativePath)>;
+/// Indicates whether a given [`Source`] is present in a [`Cache`] or not. The relative path
+/// is either the path of the cached artefact, or, for missing sources, the path in the cache where
+/// the fetched artefact should be saved
+pub enum CacheStatus {
+    #[allow(missing_docs)]
+    Cached(RelativePath),
+    #[allow(missing_docs)]
+    Missing(RelativePath),
+}
 
 /// Records data about the cached sources and where their artefacts are within a [`Cache`](Cache).
+///
+/// # Examples
+///
+/// Given a [table](crate::SourcesTable) of [`Source`](crate::Source) items, check which are cached
+/// and which are missing:
+///
+/// ```ignore
+/// use fetch_source::{Cache, SourcesTable};
+///
+/// let (sources, cache): (Cache, SourcesTable) = /*  */;
+/// let (cached, missing) = cache.items().partition_by_status(sources);
+/// for (name, digest) in cached {
+///     println!("source {name} is cached under digest {digest}");
+/// }
+/// for (name, source, cache_location) in missing {
+///     let artefact_path = cache.cache_dir().join(cache_location);
+///     println!("source {name} should be cached in {artefact_path} when fetched");
+/// }
+/// ```
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 pub struct CacheItems {
     #[serde(flatten)]
@@ -82,111 +105,18 @@ impl CacheItems {
         }
     }
 
-    /// Get the cache file path.
-    pub fn cache_file(&self) -> &std::path::Path {
-        &self.cache_file
-    }
-
-    /// Get the directory of the cache file
-    pub fn cache_dir(&self) -> CacheDir {
-        CacheDir::new(self.cache_file.parent().unwrap())
-    }
-
-    /// Calculate the path which a fetched source would have within the cache
-    pub fn cached_path(&self, source: &Source) -> std::path::PathBuf {
-        self.cache_dir().as_ref().join(Self::digest(source))
-    }
-
     /// Get the digest of a source
-    fn digest(source: &Source) -> Digest {
+    fn digest<S: AsRef<Source>>(source: S) -> Digest {
         Digest(sha256::digest(
-            serde_json::to_string(source).expect("Serialisation of Source should never fail"),
+            serde_json::to_string(source.as_ref())
+                .expect("Serialisation of Source should never fail"),
         ))
-    }
-
-    /// Partition a set of sources into those which are cached (giving their named digests) and
-    /// those which are missing (giving their fetch specifications)
-    pub fn partition_by_status<S>(
-        &self,
-        sources: S,
-    ) -> (Vec<(SourceName, Digest)>, Vec<NamedFetchSpec>)
-    where
-        S: Iterator<Item = (SourceName, Source)>,
-    {
-        sources.fold(
-            (Vec::new(), Vec::new()),
-            |(mut cached, mut missing), (name, source)| {
-                let digest = Self::digest(&source);
-                if self.map.contains_key(&digest) {
-                    cached.push((name, digest));
-                } else {
-                    let path = self.cached_path(&source);
-                    missing.push(NamedFetchSpec { name, source, path });
-                }
-                (cached, missing)
-            },
-        )
-    }
-
-    /// Fetch and insert missing sources. Fetched sources are consumed and become cached artefacts.
-    /// Return the digests of the cached source artefacts. Sources which couldn't be fetched are
-    /// returned via errors.
-    pub fn fetch_missing<F>(
-        &mut self,
-        sources: Vec<NamedFetchSpec>,
-        fetch: F,
-    ) -> (Vec<(SourceName, Digest)>, Vec<crate::FetchError>)
-    where
-        F: FnOnce(Vec<NamedFetchSpec>) -> Vec<crate::FetchResult<(SourceName, Artefact)>>,
-    {
-        fetch(sources).into_iter().fold(
-            (Vec::new(), Vec::new()),
-            |(mut cached, mut errors), result| {
-                match result {
-                    Ok((name, artefact)) => cached.push((name, self.insert(artefact))),
-                    Err(error) => errors.push(error),
-                }
-                (cached, errors)
-            },
-        )
-    }
-
-    /// Loads the cache from a JSON file in the given directory, creating a new cache if the file
-    /// does not exist.
-    pub fn load<P>(cache_dir: P) -> Result<Self, crate::Error>
-    where
-        P: AsRef<std::path::Path>,
-    {
-        let cache_file = cache_dir.as_ref().join(CACHE_FILE_NAME);
-        if !cache_file.is_file() {
-            Ok(Self::create_at(cache_file))
-        } else {
-            let cache: Self = serde_json::from_str(&std::fs::read_to_string(&cache_file)?)?;
-            Ok(Self {
-                map: cache.map,
-                cache_file,
-            })
-        }
-    }
-
-    /// Saves the cache.
-    pub fn save(&self) -> Result<(), crate::Error> {
-        let json = serde_json::to_string_pretty(self)?;
-        Ok(std::fs::write(&self.cache_file, json)?)
-    }
-
-    /// Check whether the cache file exists in the given directory.
-    pub fn exists<P>(cache_dir: P) -> bool
-    where
-        P: AsRef<std::path::Path>,
-    {
-        cache_dir.as_ref().join(CACHE_FILE_NAME).is_file()
     }
 
     /// Cache a named source artefact and return its digest. Replaces the previous value for this
     /// source. Note that a source need not have a unique name.
     pub fn insert(&mut self, artefact: Artefact) -> Digest {
-        let digest = Self::digest(artefact.as_ref());
+        let digest = Self::digest(&artefact);
         self.map.insert(digest.clone(), artefact);
         digest
     }
@@ -227,36 +157,18 @@ impl CacheItems {
     }
 
     /// Get the relative path for a source within a cache directory
-    fn relative_path(&self, source: &Source) -> RelativePath {
-        RelativePath(PathBuf::from(Self::digest(source).as_ref()))
+    fn relative_path<S: AsRef<Source>>(&self, source: S) -> RelativePath {
+        RelativePath(PathBuf::from(Self::digest(source.as_ref()).as_ref()))
     }
 
-    /// Get the digest of a source - this is CacheItems' responsibility for relative path calculation
-    pub fn digest(source: &Source) -> Digest {
-        Digest(sha256::digest(
-            serde_json::to_string(source).expect("Serialisation of Source should never fail"),
-        ))
-    }
-
-    /// Partition a set of sources into those which are cached (giving their named digests) and
-    /// those which are missing (giving their source and relative path within cache)
-    pub fn partition_by_status<S>(&self, sources: S) -> (CachedList, MissingList)
-    where
-        S: Iterator<Item = (SourceName, Source)>,
-    {
-        sources.fold(
-            (Vec::new(), Vec::new()),
-            |(mut cached, mut missing), (name, source)| {
-                let digest = Self::digest(&source);
-                if self.map.contains_key(&digest) {
-                    cached.push((name, digest));
-                } else {
-                    let relative_path = self.relative_path(&source);
-                    missing.push((name, source, relative_path));
-                }
-                (cached, missing)
-            },
-        )
+    /// Tag a [`Source`] to indicate whether it is present in the cache, along with its digest and
+    /// relative path in the cache.
+    pub fn status(&self, source: &Source) -> CacheStatus {
+        if self.is_cached(&source) {
+            CacheStatus::Cached(self.relative_path(source))
+        } else {
+            CacheStatus::Missing(self.relative_path(source))
+        }
     }
 
     /// Fetch and insert missing sources. Fetched sources are consumed and become cached artefacts.
@@ -267,35 +179,43 @@ impl CacheItems {
         sources: S,
         cache_dir: CacheDir,
         fetch: F,
-    ) -> (Vec<(SourceName, ArtefactPath)>, Vec<crate::FetchError>)
+    ) -> (
+        Vec<(SourceName, Digest, ArtefactPath)>,
+        Vec<crate::FetchError>,
+    )
     where
         S: Iterator<Item = (SourceName, Source)>,
         F: FnOnce(
             Vec<(SourceName, Source, ArtefactPath)>,
         ) -> Vec<crate::FetchResult<(SourceName, Artefact, ArtefactPath)>>,
     {
-        // Partition sources into cached and missing using fold, directly creating ArtefactPaths
-        let (mut cached, missing_sources) = sources.fold(
+        // Split the sources by their cached status. We can then only fetch missing sources and add
+        // the fetched sources to those already cached
+        let (mut cached, missing) = sources.fold(
             (Vec::new(), Vec::new()),
             |(mut cached, mut missing), (name, source)| {
                 let artefact_path = cache_dir.join(self.relative_path(&source));
-                if self.is_cached(&source) {
-                    cached.push((name, artefact_path));
-                } else {
-                    missing.push((name, source, artefact_path));
+                match self.status(&source) {
+                    CacheStatus::Cached(_) => {
+                        let digest = Self::digest(&source);
+                        cached.push((name, digest, artefact_path));
+                    }
+                    CacheStatus::Missing(relative_path) => {
+                        let artefact_path = cache_dir.join(relative_path);
+                        missing.push((name, source, artefact_path));
+                    }
                 }
                 (cached, missing)
             },
         );
 
         // Fetch outstanding sources, caching artefacts and accumulating errors
-        let (fetched_results, errors) = fetch(missing_sources).into_iter().fold(
+        let (fetched_results, errors) = fetch(missing).into_iter().fold(
             (Vec::new(), Vec::new()),
             |(mut cached, mut errors), result| {
                 match result {
                     Ok((name, artefact, artefact_path)) => {
-                        self.insert(artefact);
-                        cached.push((name, artefact_path))
+                        cached.push((name, self.insert(artefact), artefact_path))
                     }
                     Err(error) => errors.push(error),
                 }
@@ -384,49 +304,6 @@ impl Cache {
     {
         cache_dir.as_ref().join(CACHE_FILE_NAME).is_file()
     }
-
-    // Legacy compatibility methods - delegate to items
-
-    /// Cache a named source artefact and return its digest. Replaces the previous value for this
-    /// source. Note that a source need not have a unique name.
-    pub fn insert(&mut self, artefact: Artefact) -> Digest {
-        self.items.insert(artefact)
-    }
-
-    /// Check whether the cache contains the given source.
-    pub fn is_cached(&self, source: &Source) -> bool {
-        self.items.is_cached(source)
-    }
-
-    /// Retrieves a cached value for the given source, if it exists.
-    pub fn get<'a>(&'a self, source: &Source) -> Option<&'a Artefact> {
-        self.items.get(source)
-    }
-
-    /// Get the artefact associated with a source's digest
-    pub fn get_digest<'a>(&'a self, digest: &Digest) -> Option<&'a Artefact> {
-        self.items.get_digest(digest)
-    }
-
-    /// Removes a cached value for the given source, returning it if it existed.
-    pub fn remove(&mut self, source: &Source) -> Option<Artefact> {
-        self.items.remove(source)
-    }
-
-    /// Returns an iterator over the cached values.
-    pub fn values(&self) -> impl Iterator<Item = &Artefact> {
-        self.items.values()
-    }
-
-    /// Checks if the cache is empty.
-    pub fn is_empty(&self) -> bool {
-        self.items.is_empty()
-    }
-
-    /// Returns the number of cached values.
-    pub fn len(&self) -> usize {
-        self.items.len()
-    }
 }
 
 impl IntoIterator for CacheItems {
@@ -500,9 +377,9 @@ mod tests {
             "path": "BBBBBBBB",
         }
         .unwrap();
-        let digest_1 = cache.insert(artefact_1);
-        let digest_2 = cache.insert(artefact_2);
-        assert_eq!(cache.len(), 1);
+        let digest_1 = cache.items_mut().insert(artefact_1);
+        let digest_2 = cache.items_mut().insert(artefact_2);
+        assert_eq!(cache.items().len(), 1);
         assert_eq!(digest_1, digest_2);
     }
 
