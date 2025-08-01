@@ -1,7 +1,7 @@
 // A BTree maintains key order
 use std::collections::BTreeMap;
 
-use crate::{SourceName, Source, Artefact};
+use crate::{Artefact, Source, SourceName};
 
 const CACHE_FILE_NAME: &str = "fetch-source-cache.json";
 
@@ -66,12 +66,17 @@ impl Cache {
 
     /// Get the digest of a source
     fn digest(source: &Source) -> Digest {
-        Digest(sha256::digest(serde_json::to_string(source).expect("Serialisation of Source should never fail")))
+        Digest(sha256::digest(
+            serde_json::to_string(source).expect("Serialisation of Source should never fail"),
+        ))
     }
 
     /// Partition a set of sources into those which are cached (giving their named digests) and
     /// those which are missing (giving their fetch specifications)
-    pub fn partition_by_status<S>(&self, sources: S) -> (Vec<(SourceName, Digest)>, Vec<NamedFetchSpec>)
+    pub fn partition_by_status<S>(
+        &self,
+        sources: S,
+    ) -> (Vec<(SourceName, Digest)>, Vec<NamedFetchSpec>)
     where
         S: Iterator<Item = (SourceName, Source)>,
     {
