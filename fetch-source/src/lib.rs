@@ -226,9 +226,9 @@ macro_rules! build_from_json {
         serde_json::from_value::<$t>(serde_json::json! { { } }).map_err($crate::SourceParseError::from)
     }};
     ($t:ty, $($json:tt)+) => {{
-        serde_json::from_value::<$t>(serde_json::json! { { $($json)+ } }).map_err(crate::SourceParseError::from)
+        serde_json::from_value::<$t>(serde_json::json! { { $($json)+ } }).map_err($crate::SourceParseError::from)
     }};
     ($($json:tt)*) => {{
-        serde_json::from_value(serde_json::json! { { $($json)* } }).map_err(crate::SourceParseError::from)
+        serde_json::from_value(serde_json::json! { { $($json)* } }).map_err($crate::SourceParseError::from)
     }};
 }

@@ -10,7 +10,7 @@ pub struct FetchError {
 }
 
 impl FetchError {
-    pub fn new(err: FetchErrorKind, source: crate::Source) -> Self {
+    pub(crate) fn new(err: FetchErrorKind, source: crate::Source) -> Self {
         Self { source, err }
     }
 }
