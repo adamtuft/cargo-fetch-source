@@ -1,0 +1,72 @@
+name: Lint and Check
+
+# Basic code quality checks to be run on any push to dev or feature/** branches, and
+# on version tags. Also run for PRs against main & dev.
+on:
+  push:
+    branches: [ dev, 'feature/**' ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, dev ]
+
+jobs:
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run cargo clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  formatting:
+    name: Check Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check code formatting
+        run: cargo fmt --check --verbose
+
+  check:
+    name: Cargo Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
+
+      - name: Run cargo check
+        run: cargo check --all-targets --all-features
