@@ -53,7 +53,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run integration tests
-        run: cargo test --test '*' --all-features
+        run: cargo test --tests --all-features
 
   documentation:
     name: Build Documentation
