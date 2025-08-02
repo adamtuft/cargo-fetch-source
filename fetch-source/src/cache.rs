@@ -164,7 +164,7 @@ impl CacheItems {
     /// Tag a [`Source`] to indicate whether it is present in the cache, along with its digest and
     /// relative path in the cache.
     pub fn status(&self, source: &Source) -> CacheStatus {
-        if self.is_cached(&source) {
+        if self.is_cached(source) {
             CacheStatus::Cached(self.relative_path(source))
         } else {
             CacheStatus::Missing(self.relative_path(source))

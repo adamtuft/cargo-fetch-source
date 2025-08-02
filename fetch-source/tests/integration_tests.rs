@@ -285,7 +285,7 @@ fn test_source_caching() {
     // Manually partition sources by cache status since there's no partition_by_status method
     let mut cached_sources: Vec<String> = Vec::new();
     let mut missing_sources: Vec<(String, fetch_source::Source)> = Vec::new();
-    
+
     for (name, source) in sources {
         match cache.items().status(&source) {
             fetch_source::CacheStatus::Cached(_) => {
@@ -297,7 +297,7 @@ fn test_source_caching() {
             }
         }
     }
-    
+
     assert_eq!(
         cached_sources.len(),
         0,
@@ -307,20 +307,19 @@ fn test_source_caching() {
 
     // Fetch the missing source using the cache
     let cache_dir_handle = cache.cache_dir();
-    let (cached_digests, fetch_errors) = cache.items_mut().fetch_missing(
-        missing_sources.into_iter(), 
-        cache_dir_handle,
-        |specs| {
-            specs
-                .into_iter()
-                .map(|(name, source, artefact_path)| {
-                    source
-                        .fetch(artefact_path.as_ref())
-                        .map(|artefact| (name, artefact, artefact_path))
-                })
-                .collect()
-        }
-    );
+    let (cached_digests, fetch_errors) =
+        cache
+            .items_mut()
+            .fetch_missing(missing_sources.into_iter(), cache_dir_handle, |specs| {
+                specs
+                    .into_iter()
+                    .map(|(name, source, artefact_path)| {
+                        source
+                            .fetch(artefact_path.as_ref())
+                            .map(|artefact| (name, artefact, artefact_path))
+                    })
+                    .collect()
+            });
 
     // Verify the fetch succeeded
     assert_eq!(fetch_errors.len(), 0, "No fetch errors should occur");
@@ -334,7 +333,11 @@ fn test_source_caching() {
         !cache.items().is_empty(),
         "Cache should not be empty after fetching"
     );
-    assert_eq!(cache.items().len(), 1, "Cache should contain exactly one item");
+    assert_eq!(
+        cache.items().len(),
+        1,
+        "Cache should contain exactly one item"
+    );
 
     // Test that we can retrieve the cached source
     let syn_source_again = try_parse_toml(cargo_toml)
@@ -349,7 +352,8 @@ fn test_source_caching() {
         "Source should be cached now"
     );
 
-    let cached_artefact = cache.items()
+    let cached_artefact = cache
+        .items()
         .get(&syn_source_again)
         .expect("Should be able to get cached artefact");
 
@@ -398,11 +402,11 @@ fn test_source_caching() {
 
     // Test partitioning again - now the source should be cached
     let sources_again = try_parse_toml(cargo_toml).expect("Failed to parse TOML for second test");
-    
+
     // Manually partition again for the second test
     let mut cached_sources_2: Vec<String> = Vec::new();
     let mut missing_sources_2: Vec<(String, fetch_source::Source)> = Vec::new();
-    
+
     for (name, source) in sources_again {
         match reloaded_cache.items().status(&source) {
             fetch_source::CacheStatus::Cached(_) => {
@@ -413,7 +417,7 @@ fn test_source_caching() {
             }
         }
     }
-    
+
     assert_eq!(
         cached_sources_2.len(),
         1,

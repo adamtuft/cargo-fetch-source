@@ -73,7 +73,10 @@ fn fetch(
     sources: fetch_source::SourcesTable,
     cache_dir: fetch_source::CacheDir,
     cache_items: &mut fetch_source::CacheItems,
-) -> (Vec<(String, fetch_source::Digest, fetch_source::ArtefactPath)>, Option<AppError>) {
+) -> (
+    Vec<(String, fetch_source::Digest, fetch_source::ArtefactPath)>,
+    Option<AppError>,
+) {
     let num_sources = sources.len();
     let (cached, errors) =
         cache_items.fetch_missing(sources.into_iter(), cache_dir, fetch_all_parallel);
