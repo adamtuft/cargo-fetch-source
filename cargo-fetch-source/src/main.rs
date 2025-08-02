@@ -51,7 +51,7 @@ fn run() -> Result<(), error::AppError> {
                 err,
             })?;
             for (name, _, artefact_path) in cached {
-                copy_artefact(&out_dir, name, artefact_path)?;
+                copy_artefact(&out_dir, name, &*artefact_path)?;
             }
             match err {
                 Some(e) => Err(e),
@@ -88,13 +88,10 @@ fn fetch(
     }
 }
 
-fn copy_artefact<P>(
-    out_dir: &std::path::Path,
-    name: String,
-    artefact_path: P,
-) -> Result<(), AppError>
+fn copy_artefact<P, Q>(out_dir: P, name: String, artefact_path: Q) -> Result<(), AppError>
 where
     P: AsRef<std::path::Path>,
+    Q: AsRef<std::path::Path>,
 {
     if !artefact_path.as_ref().is_dir() {
         return Err(AppError::MissingArtefactDirectory {
@@ -102,7 +99,7 @@ where
             path: artefact_path.as_ref().to_path_buf(),
         });
     }
-    let dest = out_dir.join(Source::as_path_component(&name));
+    let dest = out_dir.as_ref().join(Source::as_path_component(&name));
     println!("{name}: COPY {:#?} -> {dest:#?}", artefact_path.as_ref());
     dircpy::copy_dir(artefact_path.as_ref(), &dest).map_err(|err| {
         AppError::CopyArtefactFailed {

@@ -315,7 +315,7 @@ fn test_source_caching() {
                     .into_iter()
                     .map(|(name, source, artefact_path)| {
                         source
-                            .fetch(artefact_path.as_ref())
+                            .fetch(&*artefact_path)
                             .map(|artefact| (name, artefact, artefact_path))
                     })
                     .collect()
