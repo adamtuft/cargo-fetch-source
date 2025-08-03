@@ -71,10 +71,10 @@ fn run() -> Result<(), error::AppError> {
 
 fn fetch(
     sources: fetch_source::SourcesTable,
-    cache_dir: fetch_source::CacheDir,
+    cache_dir: fetch_source::CacheRoot,
     cache_items: &mut fetch_source::CacheItems,
 ) -> (
-    Vec<(String, fetch_source::Digest, fetch_source::ArtefactPath)>,
+    Vec<(String, fetch_source::Digest, fetch_source::CacheDir)>,
     Option<AppError>,
 ) {
     let num_sources = sources.len();

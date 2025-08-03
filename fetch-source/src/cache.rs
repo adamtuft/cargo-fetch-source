@@ -18,20 +18,20 @@ where their special meaning to the cache matters.
 
 /// The root directory of a cache
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Deref)]
-pub struct CacheDir(PathBuf);
+pub struct CacheRoot(PathBuf);
 
-/// The relative path of an artefact in a cache
+/// The path of a cached artefact relative to the cache root
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Deref)]
-pub struct RelativePath(PathBuf);
+pub struct RelCacheDir(PathBuf);
 
 /// The absolute path to a cached artefact
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Deref)]
-pub struct ArtefactPath(PathBuf);
+pub struct CacheDir(PathBuf);
 
-impl CacheDir {
+impl CacheRoot {
     /// Get the absolute path to an artefact
-    pub fn artefact_path(&self, relative: RelativePath) -> ArtefactPath {
-        ArtefactPath(self.0.join(relative.0))
+    pub fn artefact_path(&self, relative: RelCacheDir) -> CacheDir {
+        CacheDir(self.0.join(relative.0))
     }
 }
 
@@ -60,9 +60,9 @@ impl AsRef<str> for Digest {
 /// artefact is or should be cached.
 pub enum CacheStatus {
     #[allow(missing_docs)]
-    Cached(RelativePath),
+    Cached(RelCacheDir),
     #[allow(missing_docs)]
-    Missing(RelativePath),
+    Missing(RelCacheDir),
 }
 
 /// Records data about the cached sources and where their artefacts are within a [`Cache`](Cache).
@@ -151,8 +151,8 @@ impl CacheItems {
     }
 
     /// Get the relative path for a source within a cache directory
-    fn relative_path<S: AsRef<Source>>(&self, source: S) -> RelativePath {
-        RelativePath(PathBuf::from(Self::digest(source.as_ref()).as_ref()))
+    pub fn relative_path<S: AsRef<Source>>(&self, source: S) -> RelCacheDir {
+        RelCacheDir(PathBuf::from(Self::digest(source.as_ref()).as_ref()))
     }
 
     /// Tag a [`Source`] to indicate whether it is present in the cache, along with its digest and
@@ -171,17 +171,14 @@ impl CacheItems {
     pub fn fetch_missing<F, S>(
         &mut self,
         sources: S,
-        cache_dir: CacheDir,
+        cache_dir: CacheRoot,
         fetch: F,
-    ) -> (
-        Vec<(SourceName, Digest, ArtefactPath)>,
-        Vec<crate::FetchError>,
-    )
+    ) -> (Vec<(SourceName, Digest, CacheDir)>, Vec<crate::FetchError>)
     where
         S: Iterator<Item = (SourceName, Source)>,
         F: FnOnce(
-            Vec<(SourceName, Source, ArtefactPath)>,
-        ) -> Vec<crate::FetchResult<(SourceName, Artefact, ArtefactPath)>>,
+            Vec<(SourceName, Source, CacheDir)>,
+        ) -> Vec<crate::FetchResult<(SourceName, Artefact, CacheDir)>>,
     {
         // Split the sources by their cached status. We can then only fetch missing sources and add
         // the fetched sources to those already cached
@@ -272,12 +269,12 @@ impl Cache {
     }
 
     /// Get the directory of the cache file
-    pub fn cache_dir(&self) -> CacheDir {
-        CacheDir(self.cache_file.parent().unwrap().to_path_buf())
+    pub fn cache_dir(&self) -> CacheRoot {
+        CacheRoot(self.cache_file.parent().unwrap().to_path_buf())
     }
 
     /// Calculate the absolute path where a fetched source would be stored within the cache
-    pub fn cached_path(&self, source: &Source) -> ArtefactPath {
+    pub fn cached_path(&self, source: &Source) -> CacheDir {
         self.cache_dir()
             .artefact_path(self.items.relative_path(source))
     }
