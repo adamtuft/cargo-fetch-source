@@ -50,7 +50,7 @@ fn run() -> Result<(), error::AppError> {
                 path: cache.cache_file().to_path_buf(),
                 err,
             })?;
-            for (name, _, artefact_path) in cached {
+            for (name, artefact_path) in cached {
                 copy_artefact(&out_dir, name, &*artefact_path)?;
             }
             match err {
@@ -73,10 +73,7 @@ fn fetch(
     sources: fetch_source::SourcesTable,
     cache_dir: fetch_source::CacheRoot,
     cache_items: &mut fetch_source::CacheItems,
-) -> (
-    Vec<(String, fetch_source::Digest, fetch_source::CacheDir)>,
-    Option<AppError>,
-) {
+) -> (Vec<(String, fetch_source::CacheDir)>, Option<AppError>) {
     let num_sources = sources.len();
     let (cached, errors) =
         cache_items.fetch_missing(sources.into_iter(), cache_dir, fetch_all_parallel);

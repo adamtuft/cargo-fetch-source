@@ -166,7 +166,7 @@ mod source;
 #[cfg(feature = "tar")]
 mod tar;
 
-pub use cache::{Cache, CacheDir, CacheItems, CacheRoot, CacheStatus, Digest, RelCacheDir};
+pub use cache::{Cache, CacheDir, CacheItems, CacheRoot, Digest, RelCacheDir};
 pub use error::{Error, FetchError};
 pub use git::Git;
 pub use source::{
