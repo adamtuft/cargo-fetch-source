@@ -1,26 +1,22 @@
 use fetch_source::{
-    Artefact, CacheDir, CacheItems, CacheRoot, FetchError, FetchResult, Source, SourceName,
-    SourcesTable,
+    Artefact, CacheDir, CacheItems, CacheRoot, FetchError, SourceName, SourcesTable,
 };
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
-fn progress_bar(mp: &MultiProgress, prefix: String) -> ProgressBar {
-    let pb = mp.add(ProgressBar::new_spinner());
-    pb.set_style(
+fn format_process(name: &str) -> (ProgressStyle, String) {
+    (
         ProgressStyle::with_template("{prefix:.cyan.bold/blue.bold} {msg:.cyan/blue} {spinner}")
             .unwrap()
             .tick_chars("⣾⣽⣻⢿⡿⣟⣯⣷"),
-    );
-    pb.set_prefix(prefix);
-    pb
+        format!("⏳  {name} -> "),
+    )
 }
 
-fn format_success(name: &str, artefact: &Artefact) -> (ProgressStyle, String) {
-    let path: &std::path::Path = artefact.as_ref();
+fn format_success(name: &str, cache_dir: &CacheDir) -> (ProgressStyle, String) {
     (
         ProgressStyle::with_template("{prefix:.cyan.bold/blue.bold} {msg:.cyan/blue}").unwrap(),
-        format!("✅  {} -> {}", name, path.display()),
+        format!("✅  {} -> {}", name, cache_dir.display()),
     )
 }
 
@@ -29,25 +25,6 @@ fn format_failure(name: &str) -> (ProgressStyle, String) {
         ProgressStyle::with_template("{prefix:.cyan.bold/blue.bold} {msg:.red.bold}").unwrap(),
         format!("⚠️  failed to fetch '{name}'"),
     )
-}
-
-// Fetch a single source, reporting progress in the provided progress bar
-fn fetch_one(
-    name: &str,
-    source: Source,
-    bar: ProgressBar,
-    artefact_path: &CacheDir,
-) -> FetchResult<Artefact> {
-    bar.enable_steady_tick(std::time::Duration::from_millis(120));
-    bar.set_message(format!("⏳  {name} -> "));
-    let result = source.fetch(&**artefact_path);
-    let (style, message) = match &result {
-        Ok(artefact) => format_success(name, artefact),
-        Err(_) => format_failure(name),
-    };
-    bar.set_style(style);
-    bar.finish_with_message(message);
-    result
 }
 
 #[inline]
@@ -83,10 +60,22 @@ pub fn fetch_all_parallel(
         // Perform the fetch in parallel
         .map(|(name, source)| {
             let k = n.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            let bar = progress_bar(&mp, format!("[{}/{}]", k + 1, count));
+            let (style, message) = format_process(&name);
+            let bar = mp.add(ProgressBar::new_spinner());
+            bar.set_style(style);
+            bar.set_message(message);
+            bar.set_prefix(format!("[{}/{}]", k + 1, count));
+            bar.enable_steady_tick(std::time::Duration::from_millis(120));
             let artefact_path = cache_root.append(cache_items.relative_path(&source));
-            fetch_one(&name, source, bar, &artefact_path)
-                .map(|artefact| (name, artefact, artefact_path))
+            let result = source.fetch(&**artefact_path);
+            let (style, message) = if result.is_ok() {
+                format_success(&name, &artefact_path)
+            } else {
+                format_failure(&name)
+            };
+            bar.set_style(style);
+            bar.finish_with_message(message);
+            result.map(|artefact| (name, artefact, artefact_path))
         })
         .collect::<Vec<_>>()
         .into_iter()
