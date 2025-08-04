@@ -8,9 +8,9 @@ use super::tar::Tar;
 /// The name of a source
 pub type SourceName = String;
 
-/// Errors encountered when parsing sources from `Cargo.toml`
+/// Inner error type for source parsing errors
 #[derive(Debug, thiserror::Error)]
-pub enum SourceParseError {
+enum SourceParseErrorInner {
     /// An unknown source variant was encountered.
     #[error("expected a valid source type for source '{source_name}': expected one of: {known}", known = SOURCE_VARIANTS.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", "))]
     VariantUnknown {
@@ -54,6 +54,129 @@ pub enum SourceParseError {
     /// A json error occurred.
     #[error(transparent)]
     JsonInvalid(#[from] serde_json::Error),
+}
+
+/// Errors encountered when parsing sources from `Cargo.toml`
+/// 
+/// This uses a boxed newtype pattern to reduce the size of Result types
+/// containing this error, addressing clippy::result_large_err warnings.
+#[derive(Debug)]
+pub struct SourceParseError(Box<SourceParseErrorInner>);
+
+impl SourceParseError {
+    /// Create a new VariantUnknown error
+    pub fn variant_unknown(source_name: SourceName) -> Self {
+        Self(Box::new(SourceParseErrorInner::VariantUnknown { source_name }))
+    }
+
+    /// Create a new VariantMultiple error
+    pub fn variant_multiple(source_name: SourceName) -> Self {
+        Self(Box::new(SourceParseErrorInner::VariantMultiple { source_name }))
+    }
+
+    /// Create a new VariantDisabled error
+    pub fn variant_disabled(source_name: SourceName, variant: String, requires: String) -> Self {
+        Self(Box::new(SourceParseErrorInner::VariantDisabled { source_name, variant, requires }))
+    }
+
+    /// Create a new ValueNotTable error
+    pub fn value_not_table(name: String) -> Self {
+        Self(Box::new(SourceParseErrorInner::ValueNotTable { name }))
+    }
+
+    /// Create a new SourceTableNotFound error
+    pub fn source_table_not_found() -> Self {
+        Self(Box::new(SourceParseErrorInner::SourceTableNotFound))
+    }
+
+    /// Check if this error is a VariantUnknown error (for testing)
+    #[cfg(test)]
+    pub fn is_variant_unknown(&self) -> bool {
+        matches!(&*self.0, SourceParseErrorInner::VariantUnknown { .. })
+    }
+
+    /// Check if this error is a VariantMultiple error (for testing)
+    #[cfg(test)]
+    pub fn is_variant_multiple(&self) -> bool {
+        matches!(&*self.0, SourceParseErrorInner::VariantMultiple { .. })
+    }
+
+    /// Check if this error is a VariantDisabled error (for testing)
+    #[cfg(test)]
+    pub fn is_variant_disabled(&self) -> bool {
+        matches!(&*self.0, SourceParseErrorInner::VariantDisabled { .. })
+    }
+
+    /// Check if this error is a ValueNotTable error (for testing)
+    #[cfg(test)]
+    pub fn is_value_not_table(&self) -> bool {
+        matches!(&*self.0, SourceParseErrorInner::ValueNotTable { .. })
+    }
+
+    /// Check if this error is a SourceTableNotFound error (for testing)
+    #[cfg(test)]
+    pub fn is_source_table_not_found(&self) -> bool {
+        matches!(&*self.0, SourceParseErrorInner::SourceTableNotFound)
+    }
+
+    /// Get the source name from the error if applicable (for testing)
+    #[cfg(test)]
+    pub fn source_name(&self) -> Option<&str> {
+        match &*self.0 {
+            SourceParseErrorInner::VariantUnknown { source_name } => Some(source_name),
+            SourceParseErrorInner::VariantMultiple { source_name } => Some(source_name),
+            SourceParseErrorInner::VariantDisabled { source_name, .. } => Some(source_name),
+            _ => None,
+        }
+    }
+
+    /// Get the variant and requires fields from VariantDisabled errors (for testing)
+    #[cfg(test)]
+    pub fn variant_info(&self) -> Option<(&str, &str)> {
+        match &*self.0 {
+            SourceParseErrorInner::VariantDisabled { variant, requires, .. } => Some((variant, requires)),
+            _ => None,
+        }
+    }
+
+    /// Check if this error is a TomlInvalid error (for testing)
+    #[cfg(test)]
+    pub fn is_toml_invalid(&self) -> bool {
+        matches!(&*self.0, SourceParseErrorInner::TomlInvalid(_))
+    }
+
+    /// Get the name field from ValueNotTable errors (for testing)
+    #[cfg(test)]
+    pub fn table_name(&self) -> Option<&str> {
+        match &*self.0 {
+            SourceParseErrorInner::ValueNotTable { name } => Some(name),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for SourceParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl std::error::Error for SourceParseError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.0.source()
+    }
+}
+
+impl From<toml::de::Error> for SourceParseError {
+    fn from(err: toml::de::Error) -> Self {
+        Self(Box::new(SourceParseErrorInner::TomlInvalid(err)))
+    }
+}
+
+impl From<serde_json::Error> for SourceParseError {
+    fn from(err: serde_json::Error) -> Self {
+        Self(Box::new(SourceParseErrorInner::JsonInvalid(err)))
+    }
 }
 
 /// Represents the result of a fetch operation
@@ -176,23 +299,19 @@ impl Source {
         for key in source.keys() {
             if let Some(variant) = SourceVariant::from(key) {
                 if detected_variant.is_some() {
-                    return Err(SourceParseError::VariantMultiple {
-                        source_name: name.to_string(),
-                    });
+                    return Err(SourceParseError::variant_multiple(name.to_string()));
                 }
                 if !variant.is_enabled() {
-                    return Err(SourceParseError::VariantDisabled {
-                        source_name: name.to_string(),
-                        variant: variant.to_string(),
-                        requires: variant.feature().unwrap_or("?").to_string(),
-                    });
+                    return Err(SourceParseError::variant_disabled(
+                        name.to_string(),
+                        variant.to_string(),
+                        variant.feature().unwrap_or("?").to_string(),
+                    ));
                 }
                 detected_variant = Some(variant);
             }
         }
-        detected_variant.ok_or(SourceParseError::VariantUnknown {
-            source_name: name.to_string(),
-        })
+        detected_variant.ok_or_else(|| SourceParseError::variant_unknown(name.to_string()))
     }
 
     /// Parse a TOML table into a `Source` instance. Exactly one key in the table must identify
@@ -212,7 +331,7 @@ pub fn try_parse(table: &toml::Table) -> Result<SourcesTable, SourceParseError> 
         .iter()
         .map(|(k, v)| match v.as_table() {
             Some(t) => Source::parse(k, t.to_owned()).map(|s| (k.to_owned(), s)),
-            None => Err(SourceParseError::ValueNotTable { name: k.to_owned() }),
+            None => Err(SourceParseError::value_not_table(k.to_owned())),
         })
         .collect()
 }
@@ -226,12 +345,9 @@ pub fn try_parse_toml<S: AsRef<str>>(toml_str: S) -> Result<SourcesTable, Source
         .and_then(|v| v.get("metadata"))
         .and_then(|v| v.get("fetch-source"))
         .and_then(|v| v.as_table())
-        .ok_or(SourceParseError::SourceTableNotFound)?;
+        .ok_or_else(SourceParseError::source_table_not_found)?;
     try_parse(sources_table)
 }
-
-#[cfg(test)]
-use SourceParseError::*;
 
 #[cfg(test)]
 mod test_parsing_single_source_value {
@@ -265,9 +381,8 @@ mod test_parsing_single_source_value {
             "tar": "https://example.com/foo.tar.gz"
         };
         assert!(
-            matches!(source, Err(VariantDisabled { source_name: _, variant, requires })
-                if variant == "tar" && requires == "tar"
-            )
+            matches!(source, Err(err) if err.is_variant_disabled() && 
+                err.variant_info() == Some(("tar", "tar")))
         );
     }
 
@@ -281,9 +396,8 @@ mod test_parsing_single_source_value {
                 git = "git@github.com:foo/bar.git"
             },
         );
-        assert!(matches!(source, Err(VariantMultiple { source_name })
-            if source_name == "src"
-        ));
+        assert!(matches!(source, Err(err) if err.is_variant_multiple() && 
+            err.source_name() == Some("src")));
     }
 
     #[test]
@@ -295,9 +409,8 @@ mod test_parsing_single_source_value {
                 foo = "git@github.com:foo/bar.git"
             },
         );
-        assert!(matches!(source, Err(VariantUnknown { source_name })
-            if source_name == "src"
-        ));
+        assert!(matches!(source, Err(err) if err.is_variant_unknown() && 
+            err.source_name() == Some("src")));
     }
 }
 
@@ -309,7 +422,7 @@ mod test_parsing_sources_table_failure_modes {
     fn parse_invalid_toml_str_fails() {
         let document = "this is not a valid toml document :( uh-oh!";
         let result = try_parse_toml(document);
-        assert!(matches!(result, Err(TomlInvalid(_))));
+        assert!(matches!(result, Err(err) if err.is_toml_invalid()));
     }
 
     #[test]
@@ -322,7 +435,7 @@ mod test_parsing_sources_table_failure_modes {
             foo = { git = "git@github.com:foo/bar.git" }
             bar = { tar = "https://example.com/foo.tar.gz" }
         "#;
-        assert!(matches!(try_parse_toml(document), Err(SourceTableNotFound)));
+        assert!(matches!(try_parse_toml(document), Err(err) if err.is_source_table_not_found()));
     }
 
     #[test]
@@ -336,7 +449,7 @@ mod test_parsing_sources_table_failure_modes {
         "#;
         assert!(matches!(
             try_parse_toml(document),
-            Err(ValueNotTable { name }) if name == "not-a-table"
+            Err(err) if err.is_value_not_table() && err.table_name() == Some("not-a-table")
         ));
     }
 
@@ -352,11 +465,9 @@ mod test_parsing_sources_table_failure_modes {
         "#;
         assert!(matches!(
             try_parse_toml(document),
-            Err(VariantDisabled {
-                source_name,
-                variant,
-                requires,
-            }) if source_name == "bar" && variant == "tar" && requires == "tar"
+            Err(err) if err.is_variant_disabled() && 
+                err.source_name() == Some("bar") && 
+                err.variant_info() == Some(("tar", "tar"))
         ));
     }
 
@@ -371,7 +482,7 @@ mod test_parsing_sources_table_failure_modes {
         "#;
         assert!(matches!(
             try_parse_toml(document),
-            Err(VariantMultiple { source_name }) if source_name == "bar"
+            Err(err) if err.is_variant_multiple() && err.source_name() == Some("bar")
         ));
     }
 
@@ -386,7 +497,7 @@ mod test_parsing_sources_table_failure_modes {
         "#;
         assert!(matches!(
             try_parse_toml(document),
-            Err(VariantUnknown { source_name }) if source_name == "bar"
+            Err(err) if err.is_variant_unknown() && err.source_name() == Some("bar")
         ));
     }
 }
