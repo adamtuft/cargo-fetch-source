@@ -207,8 +207,10 @@ impl TryFrom<Command> for ValidatedCommand {
                 let cache = ValidatedArgs::load_cache_from(cache_dir)?;
 
                 if let Some(threads) = threads {
-                    // SAFETY: only called in a serial region before any other threads exist.
-                    unsafe { std::env::set_var("RAYON_NUM_THREADS", format!("{threads}")) };
+                    rayon::ThreadPoolBuilder::new()
+                        .num_threads(threads as usize)
+                        .build_global()
+                        .map_err(|e| AppError::ArgValidation(format!("Failed to set thread count: {e}")))?;
                 }
 
                 Ok(ValidatedCommand::Fetch {
