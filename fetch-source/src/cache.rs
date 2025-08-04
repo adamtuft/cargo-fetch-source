@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use derive_more::Deref;
 
-use crate::{Artefact, Source};
+use crate::{Artefact, Digest, Source};
 
 const CACHE_FILE_NAME: &str = "fetch-source-cache.json";
 
@@ -32,27 +32,6 @@ impl CacheRoot {
     /// Get the absolute path to an artefact
     pub fn append(&self, relative: RelCacheDir) -> CacheDir {
         CacheDir(self.0.join(relative.0))
-    }
-}
-
-/// The digest associated with the definition of a [`Source`]
-#[derive(
-    Debug,
-    Default,
-    serde::Deserialize,
-    serde::Serialize,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Clone,
-    Deref,
-)]
-pub struct Digest(String);
-
-impl AsRef<str> for Digest {
-    fn as_ref(&self) -> &str {
-        self.0.as_ref()
     }
 }
 
@@ -90,40 +69,27 @@ impl CacheItems {
         }
     }
 
-    /// Get the digest of a source
-    fn digest<S: AsRef<Source>>(source: S) -> Digest {
-        Digest(sha256::digest(
-            serde_json::to_string(source.as_ref())
-                .expect("Serialisation of Source should never fail"),
-        ))
-    }
-
-    /// Cache a named source artefact and return its digest. Replaces the previous value for this
-    /// source. Note that a source need not have a unique name.
-    pub fn insert(&mut self, artefact: Artefact) -> Digest {
-        let digest = Self::digest(&artefact);
-        self.map.insert(digest.clone(), artefact);
-        digest
-    }
-
-    /// Retrieves a cached value for the given source, if it exists.
+    /// Retrieves a cached artefact for the given source, if it exists.
     pub fn get(&self, source: &Source) -> Option<&Artefact> {
-        self.map.get(&Self::digest(source))
-    }
-
-    /// Get the artefact associated with a source's digest
-    pub fn get_digest(&self, digest: &Digest) -> Option<&Artefact> {
-        self.map.get(digest)
+        self.map.get(&Source::digest(source))
     }
 
     /// Check whether the cache contains the given source.
     pub fn contains(&self, source: &Source) -> bool {
-        self.map.contains_key(&Self::digest(source))
+        self.map.contains_key(&Source::digest(source))
+    }
+
+    /// Cache an artefact and return the digest of the [`Source`] which created it. Replaces any
+    /// previous value for this source.
+    pub fn insert(&mut self, artefact: Artefact) -> Digest {
+        let digest = Source::digest(&artefact);
+        self.map.insert(digest.clone(), artefact);
+        digest
     }
 
     /// Removes a cached value for the given source, returning it if it existed.
     pub fn remove(&mut self, source: &Source) -> Option<Artefact> {
-        self.map.remove(&Self::digest(source))
+        self.map.remove(&Source::digest(source))
     }
 
     /// Returns an iterator over the cached values.
@@ -143,7 +109,7 @@ impl CacheItems {
 
     /// Get the relative path for a source within a cache directory
     pub fn relative_path<S: AsRef<Source>>(&self, source: S) -> RelCacheDir {
-        RelCacheDir(PathBuf::from(Self::digest(source.as_ref()).as_ref()))
+        RelCacheDir(PathBuf::from(Source::digest(source).as_ref()))
     }
 }
 
@@ -183,7 +149,9 @@ impl Cache {
         }
     }
 
-    /// Saves the cache.
+    /// Saves the cache in the directory where it was created.
+    ///
+    /// Returns an error if a serialisation or I/O error occurs.
     pub fn save(&self) -> Result<(), crate::Error> {
         let json = serde_json::to_string_pretty(&self.items)?;
         Ok(std::fs::write(&self.cache_file, json)?)
@@ -276,7 +244,7 @@ mod tests {
         let source: Source =
             crate::build_from_json! { "tar": "www.example.com/test.tar.gz" }.unwrap();
         assert_eq!(
-            PathBuf::from("/foo/bar/").join(CacheItems::digest(&source).as_ref()),
+            PathBuf::from("/foo/bar/").join(Source::digest(&source).as_ref()),
             *cache.cached_path(&source)
         );
     }
@@ -313,7 +281,7 @@ mod tests {
             crate::build_from_json! { "tar": "www.example.com/test.tar.gz" }.unwrap();
         assert!(!items.contains(&source));
 
-        let digest = items.insert(artefact);
+        items.insert(artefact);
         assert!(items.contains(&source));
         assert_eq!(items.len(), 1);
 
@@ -322,9 +290,6 @@ mod tests {
             <crate::Artefact as AsRef<Path>>::as_ref(retrieved),
             Path::new("/some/path")
         );
-
-        let retrieved_by_digest = items.get_digest(&digest).unwrap();
-        assert_eq!(retrieved, retrieved_by_digest);
     }
 
     #[test]

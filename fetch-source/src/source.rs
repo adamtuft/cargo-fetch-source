@@ -5,6 +5,8 @@ use super::git::Git;
 #[cfg(feature = "tar")]
 use super::tar::Tar;
 
+use derive_more::Deref;
+
 /// The name of a source
 pub type SourceName = String;
 
@@ -60,6 +62,8 @@ pub enum SourceParseError {
 pub type FetchResult<T> = Result<T, crate::FetchError>;
 
 /// Represents a source that has been fetched from a remote location.
+///
+/// Notably implements [`AsRef<std::path::Path>`](std::path::Path) and [`AsRef<Source>`](Source).
 #[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 pub struct Artefact {
     // This is a combination of the fetched artefact and the source it was fetched from.
@@ -131,6 +135,27 @@ impl SourceVariant {
     }
 }
 
+/// The digest associated with the definition of a [`Source`]
+#[derive(
+    Debug,
+    Default,
+    serde::Deserialize,
+    serde::Serialize,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Clone,
+    Deref,
+)]
+pub struct Digest(String);
+
+impl AsRef<str> for Digest {
+    fn as_ref(&self) -> &str {
+        self.0.as_ref()
+    }
+}
+
 /// Represents an entry in the `package.metadata.fetch-source` table.
 #[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 #[serde(untagged)]
@@ -155,6 +180,13 @@ impl std::fmt::Display for Source {
 }
 
 impl Source {
+    /// Calculate the digest of a source.
+    pub fn digest<S: AsRef<Self>>(value: S) -> Digest {
+        let json = serde_json::to_string(value.as_ref())
+            .expect("Serialisation of Source should never fail");
+        Digest(sha256::digest(json))
+    }
+
     /// Fetch the remote source as declared in `Cargo.toml` and put the resulting [`Artefact`] in `dir`.
     pub fn fetch<P: AsRef<std::path::Path>>(self, dir: P) -> FetchResult<Artefact> {
         let dest = dir.as_ref();

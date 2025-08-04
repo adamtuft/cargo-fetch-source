@@ -100,9 +100,8 @@ fetch_source::try_parse_toml(cargo_toml)?.into_par_iter()
 //!
 //! # Caching Sources
 //!
-//! Cache sources used by multiple projects for efficient sharing between projects. If two projects
-//! have the same definition of a source (excluding the source's name) then they will use the same
-//! cached copy of the source.
+//! Cache sources for efficient sharing across repeated builds. Refer to the same source across
+//! different builds or projects by using the same source definition in `Cargo.toml`.
 //!
 //! ```rust
 //! # use fetch_source::Cache;
@@ -142,7 +141,7 @@ fetch_source::try_parse_toml(cargo_toml)?.into_par_iter()
 //! # Declaring sources
 //!
 //! The keys in the `package.metadata.fetch-source` table name a remote source. They can include
-//! any path character and zero or more `::` sub-name separators. Each `::`-separated component of a
+//! any path character and zero or more '`::`' separators. Each `::`-separated component of a
 //! name maps to a subdirectory of the output directory.
 //!
 //! Each value in the `package.metadata.fetch-source` table must be a table which identifies the
@@ -166,11 +165,12 @@ mod source;
 #[cfg(feature = "tar")]
 mod tar;
 
-pub use cache::{Cache, CacheDir, CacheItems, CacheRoot, Digest, RelCacheDir};
+pub use cache::{Cache, CacheDir, CacheItems, CacheRoot, RelCacheDir};
 pub use error::{Error, FetchError};
 pub use git::Git;
 pub use source::{
-    Artefact, FetchResult, Source, SourceName, SourceParseError, SourcesTable, try_parse_toml,
+    Artefact, Digest, FetchResult, Source, SourceName, SourceParseError, SourcesTable,
+    try_parse_toml,
 };
 #[cfg(feature = "tar")]
 pub use tar::Tar;
