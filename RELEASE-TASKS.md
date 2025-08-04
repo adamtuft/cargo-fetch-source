@@ -1,0 +1,582 @@
+# Release Tasks for 1.0.0
+
+This document outlines the tasks that should be completed before releasing version 1.0.0 of `cargo-fetch-source`. Tasks are prioritized by value to the project.
+
+## Critical Issues (Must Fix) 🚨
+
+### 1. Fix Large Error Enum in CLI Application
+**Priority**: CRITICAL - Blocks compilation with strict linting
+**Location**: `cargo-fetch-source/src/error.rs`
+**Issue**: AppError enum variants are too large (144+ bytes), causing clippy failures
+
+**Recommended Fix**:
+```rust
+// Current problematic code:
+enum AppError {
+    CacheSaveFailed {
+        path: std::path::PathBuf,     // ~96 bytes
+        #[source]
+        err: fetch_source::Error,     // ~48+ bytes
+    },
+    // ... other variants
+}
+
+// Solution: Box the large inner error
+enum AppError {
+    #[error("failed to save cache to {}", path.display())]
+    CacheSaveFailed {
+        path: std::path::PathBuf,
+        #[source]
+        err: Box<fetch_source::Error>,  // Box reduces stack size
+    },
+    // Apply same pattern to other large variants
+}
+```
+
+**Files to modify**:
+- `cargo-fetch-source/src/error.rs`
+- Update all `.map_err()` calls to box the errors appropriately
+
+### 2. Remove Unsafe Environment Variable Manipulation
+**Priority**: CRITICAL - Unsafe code without justification
+**Location**: `cargo-fetch-source/src/args.rs:201`
+**Issue**: Using `unsafe` to set global environment variables
+
+**Current Code**:
+```rust
+if let Some(threads) = threads {
+    // SAFETY: only called in a serial region before any other threads exist.
+    unsafe { std::env::set_var("RAYON_NUM_THREADS", format!("{threads}")) };
+}
+```
+
+**Recommended Fix**:
+```rust
+if let Some(threads) = threads {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(threads as usize)
+        .build_global()
+        .map_err(|e| AppError::ArgValidation(format!("Failed to set thread count: {}", e)))?;
+}
+```
+
+**Benefits**: Eliminates unsafe code, uses proper Rayon API, better error handling
+
+## High Priority Issues 📋
+
+### 3. Add CLI Integration Tests
+**Priority**: HIGH - No test coverage for CLI functionality
+**Location**: `cargo-fetch-source/tests/` (new directory)
+**Issue**: CLI application has 0 unit tests
+
+**Recommended Implementation**:
+```rust
+// Add to Cargo.toml:
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.0"
+tempfile = "3.0"
+
+// Create cargo-fetch-source/tests/cli_tests.rs:
+use assert_cmd::prelude::*;
+use std::process::Command;
+use tempfile::tempdir;
+
+#[test]
+fn test_list_command_with_missing_manifest() {
+    let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
+    cmd.args(&["list", "--manifest-file", "nonexistent.toml"]);
+    cmd.assert().failure().code(2);
+}
+
+#[test]
+fn test_fetch_command_with_invalid_cache_dir() {
+    let temp_dir = tempdir().unwrap();
+    let invalid_cache = temp_dir.path().join("non/existent/cache");
+    
+    let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
+    cmd.args(&["fetch", "--cache", invalid_cache.to_str().unwrap()]);
+    cmd.assert().failure();
+}
+```
+
+**Test Coverage Targets**:
+- [ ] Argument parsing edge cases
+- [ ] Error formatting and exit codes
+- [ ] Environment variable detection logic
+- [ ] Cache directory creation and permissions
+- [ ] Output format validation
+- [ ] Manifest file discovery logic
+
+### 4. Improve Function Organization in CLI
+**Priority**: HIGH - Maintainability issue
+**Location**: `cargo-fetch-source/src/main.rs`
+**Issue**: Large `fetch()` function with mixed concerns
+
+**Recommended Refactoring**:
+```rust
+// Split the large fetch function:
+fn fetch_and_cache_sources(
+    sources: SourcesTable,
+    cache_items: &mut CacheItems,
+    cache_root: &CacheRoot,
+) -> (Vec<(String, CacheDir)>, Vec<FetchError>) {
+    // Move the core fetching logic here
+}
+
+fn copy_all_artefacts<P>(
+    out_dir: P,
+    artefacts: Vec<(String, CacheDir)>,
+) -> Result<(), AppError> {
+    // Move the copying logic here
+}
+
+fn run() -> Result<(), AppError> {
+    // Simplified orchestration logic only
+}
+```
+
+## Medium Priority Issues 🔧
+
+### 5. Add Performance Documentation
+**Priority**: MEDIUM - User guidance missing
+**Location**: `fetch-source/src/lib.rs` (crate-level docs)
+**Issue**: Missing performance characteristics documentation
+
+**Add to Documentation**:
+```rust
+//! # Performance Characteristics
+//!
+//! - **Git clones**: Always shallow (depth=1) to minimize download time
+//! - **Parallel execution**: Scales with CPU cores when using `rayon` feature
+//! - **HTTP requests**: Uses blocking I/O, suitable for build scripts
+//! - **Cache lookups**: O(log n) using BTreeMap for deterministic ordering
+//! - **Memory usage**: Minimal - streams data directly to disk
+//!
+//! # Cache Lifecycle
+//!
+//! - Cache is persistent across builds and projects
+//! - Sources are identified by SHA256 hash of their definition
+//! - Cache files are human-readable JSON for debugging
+//! - No automatic cleanup - manual cache management required
+```
+
+### 6. Add Error Recovery Guidance
+**Priority**: MEDIUM - Better user experience
+**Location**: `fetch-source/src/lib.rs` and CLI help text
+**Issue**: No guidance on handling partial failures
+
+**Add Documentation**:
+```rust
+//! # Error Handling Patterns
+//!
+//! ```rust
+//! let results = fetch_source::fetch_all(sources, &out_dir);
+//! let (successes, failures): (Vec<_>, Vec<_>) = results
+//!     .into_iter()
+//!     .partition(|(_, result)| result.is_ok());
+//!
+//! // Handle partial success scenarios
+//! if !failures.is_empty() {
+//!     eprintln!("Some sources failed to fetch:");
+//!     for (name, err) in failures {
+//!         eprintln!("  {}: {}", name, err);
+//!     }
+//! }
+//! ```
+```
+
+### 7. Enhance Git Error Context
+**Priority**: MEDIUM - Better debugging experience
+**Location**: `fetch-source/src/git.rs`
+**Issue**: Git subprocess errors lack context
+
+**Current**:
+```rust
+Err(FetchErrorKind::subprocess(command, status, stderr))
+```
+
+**Enhanced**:
+```rust
+let mut error_context = format!("Git clone failed for {}", self.url);
+if let Some(branch) = self.branch_name() {
+    error_context.push_str(&format!(" (branch: {})", branch));
+}
+if let Some(commit) = self.commit_sha() {
+    error_context.push_str(&format!(" (commit: {})", commit));
+}
+
+Err(FetchErrorKind::subprocess_with_context(
+    command, 
+    status, 
+    stderr,
+    error_context
+))
+```
+
+## Release Infrastructure 🏗️
+
+### 8. Add License File
+**Priority**: HIGH - Legal requirement for distribution
+**Location**: Project root
+**Recommendation**: MIT or Apache-2.0 (dual license common in Rust ecosystem)
+
+**Create `LICENSE-MIT`**:
+```
+MIT License
+
+Copyright (c) 2025 Adam Tuft
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+**Create `LICENSE-APACHE`**:
+```
+                              Apache License
+                        Version 2.0, January 2004
+                     http://www.apache.org/licenses/
+
+[Full Apache 2.0 license text]
+```
+
+**Update `Cargo.toml`**:
+```toml
+[package]
+license = "MIT OR Apache-2.0"
+```
+
+### 9. Add Release-Please CI Workflow
+**Priority**: HIGH - Automated release management
+**Location**: `.github/workflows/release-please.yml`
+
+**Implementation**:
+```yaml
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          release-type: rust
+          package-name: cargo-fetch-source
+          
+  publish:
+    runs-on: ubuntu-latest
+    needs: release-please
+    if: ${{ needs.release-please.outputs.releases_created }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Publish to crates.io
+        run: |
+          cd fetch-source
+          cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          cd ../cargo-fetch-source  
+          cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+```
+
+**Configuration File** (`.release-please-config.json`):
+```json
+{
+  "release-type": "rust",
+  "packages": {
+    "fetch-source": {
+      "component": "fetch-source"
+    },
+    "cargo-fetch-source": {
+      "component": "cargo-fetch-source"  
+    }
+  }
+}
+```
+
+### 10. Add Contributing Guide
+**Priority**: MEDIUM - Community guidelines
+**Location**: `CONTRIBUTING.md`
+
+**Implementation**:
+```markdown
+# Contributing to cargo-fetch-source
+
+Thank you for your interest in contributing! This project follows conventional commits for compatibility with automated release management.
+
+## Conventional Commits
+
+We use [Conventional Commits](https://www.conventionalcommits.org/) for commit messages:
+
+- `feat:` for new features
+- `fix:` for bug fixes  
+- `docs:` for documentation changes
+- `test:` for test additions/changes
+- `refactor:` for code refactoring
+- `chore:` for maintenance tasks
+
+### Examples:
+```
+feat: add support for SVN repositories
+fix: resolve cache corruption on interrupted downloads
+docs: improve installation instructions
+test: add integration tests for CLI error handling
+```
+
+### Breaking Changes:
+```
+feat!: change cache directory structure
+fix!: remove deprecated fetch_sync function
+
+BREAKING CHANGE: Cache directory structure has changed to improve performance.
+Existing caches will need to be rebuilt.
+```
+
+## Development Setup
+
+1. Clone the repository
+2. Install Rust toolchain
+3. Run tests: `cargo test --all-features`
+4. Run clippy: `cargo clippy --all-features -- -D warnings`
+5. Run formatting: `cargo fmt`
+
+## Testing Guidelines
+
+- Add unit tests for new functionality
+- Add integration tests for CLI changes
+- Ensure all tests pass with `--all-features`
+- Test with real repositories when possible
+
+## Documentation
+
+- Update crate-level documentation for API changes
+- Add doc tests for new public functions
+- Update README.md for user-facing changes
+```
+
+## Additional Improvements 🚀
+
+### 11. Add GitHub Actions CI/CD
+**Priority**: HIGH - Quality assurance
+**Location**: `.github/workflows/ci.yml`
+
+**Implementation**:
+```yaml
+name: CI
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        rust: [stable, beta]
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@${{ matrix.rust }}
+    - name: Run tests
+      run: cargo test --all-features --verbose
+    - name: Run integration tests
+      run: cargo test --test integration_tests --all-features
+
+  fmt:
+    name: Formatting
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt
+    - name: Check formatting
+      run: cargo fmt --all -- --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy
+    - name: Run clippy
+      run: cargo clippy --all-features -- -D warnings
+
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - name: Install cargo-audit
+      run: cargo install cargo-audit
+    - name: Run security audit
+      run: cargo audit
+```
+
+### 12. Add Installation Documentation
+**Priority**: MEDIUM - User onboarding
+**Location**: `README.md` enhancement
+
+**Add Section**:
+```markdown
+## Installation
+
+### From crates.io (Recommended)
+```bash
+cargo install cargo-fetch-source
+```
+
+### From Source
+```bash
+git clone https://github.com/adamtuft/cargo-fetch-source.git
+cd cargo-fetch-source
+cargo install --path cargo-fetch-source
+```
+
+### Usage in Build Scripts
+Add to your `Cargo.toml`:
+```toml
+[build-dependencies]
+fetch-source = "1.0"
+```
+
+Then in your `build.rs`:
+```rust
+use fetch_source::{try_parse_toml, fetch_all};
+
+fn main() {
+    // Your build script code here
+}
+```
+```
+
+### 13. Add Changelog
+**Priority**: MEDIUM - Release tracking
+**Location**: `CHANGELOG.md`
+
+**Implementation** (managed by release-please):
+```markdown
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+- Initial release of cargo-fetch-source
+- Support for Git repositories and tar archives
+- Parallel fetching with rayon
+- Content-addressable caching
+- CLI tool for standalone usage
+
+### Security
+- All git operations use shallow clones for security
+- Path traversal protection in cache operations
+```
+
+### 14. Add Security Policy
+**Priority**: LOW - Community safety
+**Location**: `SECURITY.md`
+
+**Implementation**:
+```markdown
+# Security Policy
+
+## Supported Versions
+
+| Version | Supported          |
+| ------- | ------------------ |
+| 1.0.x   | :white_check_mark: |
+| < 1.0   | :x:                |
+
+## Reporting a Vulnerability
+
+If you discover a security vulnerability, please send an email to [security-email].
+Do not create a public GitHub issue.
+
+We take security seriously and will respond within 48 hours.
+
+## Security Considerations
+
+- This tool executes `git` commands and downloads content from the internet
+- Always review source URLs before adding them to your project
+- Use HTTPS URLs when possible to prevent man-in-the-middle attacks
+- The cache directory should have appropriate permissions (not world-writable)
+```
+
+## Checklist Summary
+
+### Critical (Must Fix for 1.0.0)
+- [ ] Fix large error enum in CLI application (clippy failures)
+- [ ] Remove unsafe environment variable manipulation
+- [ ] Add license files (MIT/Apache-2.0)
+
+### High Priority  
+- [ ] Add CLI integration tests
+- [ ] Refactor large functions in main.rs
+- [ ] Set up release-please CI workflow
+- [ ] Add GitHub Actions CI/CD pipeline
+
+### Medium Priority
+- [ ] Add performance characteristics documentation
+- [ ] Add error recovery guidance documentation
+- [ ] Enhance git error context
+- [ ] Add contributing guide with conventional commits
+- [ ] Add installation documentation
+- [ ] Add changelog (auto-managed by release-please)
+
+### Low Priority
+- [ ] Add security policy
+- [ ] Consider API discoverability improvements
+- [ ] Add retry logic for network operations
+- [ ] Add resource management (timeouts, disk space checks)
+
+## Estimated Timeline
+
+- **Critical issues**: 1-2 days
+- **High priority**: 1 week  
+- **Medium priority**: 2 weeks
+- **Total to 1.0.0**: 2-3 weeks
+
+This project demonstrates excellent engineering practices and is very close to being production-ready. The identified issues are primarily polish and infrastructure rather than fundamental design problems.
