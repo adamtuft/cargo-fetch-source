@@ -176,6 +176,8 @@ pub use source::{
 pub use tar::Tar;
 
 /// Convenience function to load sources from `Cargo.toml` in the given directory
+///
+/// Returns an error if the manifest can't be loaded or if deserialisation fails.
 pub fn load_sources<P: AsRef<std::path::Path>>(path: P) -> Result<SourcesTable, Error> {
     Ok(try_parse_toml(&std::fs::read_to_string(
         path.as_ref().to_path_buf().join("Cargo.toml"),
@@ -186,37 +188,68 @@ pub fn load_sources<P: AsRef<std::path::Path>>(path: P) -> Result<SourcesTable, 
 pub fn fetch_all<P: AsRef<std::path::Path>>(
     sources: SourcesTable,
     out_dir: P,
-) -> Vec<Result<(SourceName, Artefact), crate::FetchError>> {
+) -> Vec<(SourceName, FetchResult<Artefact>)> {
     sources
         .into_iter()
-        .map(|(name, source)| source.fetch(&out_dir).map(|artefact| (name, artefact)))
+        .map(|(name, source)| match source.fetch(&out_dir) {
+            Ok(artefact) => (name, Ok(artefact)),
+            Err(err) => (name, Err(err)),
+        })
         .collect()
 }
 
 #[cfg(feature = "rayon")]
-use rayon::prelude::*;
+mod par {
+    use super::*;
+    use rayon::prelude::*;
+
+    /// Convenience function to fetch all sources in parallel
+    pub fn fetch_all_par<P: AsRef<std::path::Path> + Sync>(
+        sources: SourcesTable,
+        out_dir: P,
+    ) -> Vec<(SourceName, FetchResult<Artefact>)> {
+        sources
+            .into_par_iter()
+            .map(|(name, source)| match source.fetch(&out_dir) {
+                Ok(artefact) => (name, Ok(artefact)),
+                Err(err) => (name, Err(err)),
+            })
+            .collect::<Vec<_>>()
+    }
+
+    /// Convenience function to update the given cache with all missing sources in parallel.
+    /// Returns any errors that occurred when fetching the missing sources.
+    pub fn cache_all_par<P: AsRef<std::path::Path> + Sync>(
+        cache: &mut Cache,
+        sources: SourcesTable,
+    ) -> Vec<(SourceName, FetchError)> {
+        let items = cache.items();
+        let cache_root = cache.cache_dir();
+        let results = sources
+            .into_iter()
+            .filter(|(_, source)| !items.contains(source))
+            .collect::<Vec<_>>()
+            .into_par_iter()
+            .map(|(name, source)| {
+                let artefact_dir = cache_root.append(items.relative_path(&source));
+                (name, source.fetch(&*artefact_dir))
+            })
+            .collect::<Vec<_>>();
+        let items = cache.items_mut();
+        results.into_iter().fold(Vec::new(), {
+            |mut errors, (name, result)| {
+                match result {
+                    Ok(artefact) => items.insert(artefact),
+                    Err(err) => errors.push((name, err)),
+                }
+                errors
+            }
+        })
+    }
+}
 
 #[cfg(feature = "rayon")]
-/// Convenience function to fetch all sources in parallel
-pub fn fetch_all_par<P: AsRef<std::path::Path> + Sync>(
-    sources: SourcesTable,
-    out_dir: P,
-) -> Vec<Result<(SourceName, Artefact), crate::FetchError>> {
-    sources
-        .into_par_iter()
-        .map(|(name, source)| source.fetch(&out_dir).map(|artefact| (name, artefact)))
-        .collect::<Vec<_>>()
-}
-
-/// Convenience function to iterate over the artefacts in a cache (if any)
-pub fn iter_cached_artefacts<P: AsRef<std::path::Path>>(
-    cache_dir: P,
-) -> Result<impl Iterator<Item = Artefact>, crate::Error> {
-    // Placeholder for future implementation
-    Ok(Cache::load(cache_dir)?
-        .into_iter()
-        .map(|(_, artefact)| artefact))
-}
+pub use par::{cache_all_par, fetch_all_par};
 
 /// Construct a serde-compatible type from a JSON table literal. Useful in testing.
 #[cfg(test)]

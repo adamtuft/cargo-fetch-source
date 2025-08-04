@@ -68,6 +68,9 @@ pub(crate) enum ErrorKind {
 
     #[error(transparent)]
     Parse(#[from] crate::SourceParseError),
+
+    #[error(transparent)]
+    Fetch(#[from] FetchError),
 }
 
 // Blanket implementation for all variants of ErrorKind with a #[from] attribute

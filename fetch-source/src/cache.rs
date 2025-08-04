@@ -37,24 +37,10 @@ impl CacheRoot {
 
 /// Records data about the cached sources and where their artefacts are within a [`Cache`](Cache).
 ///
-/// # Examples
+/// When a [`Source`] is fetched, insert its [`Artefact`] into a cache to avoid repeatedly fetching
+/// the same source definition.
 ///
-/// Given a [table](crate::SourcesTable) of [`Source`](crate::Source) items, check which are cached
-/// and which are missing:
-///
-/// ```ignore
-/// use fetch_source::{Cache, SourcesTable};
-///
-/// let (sources, cache): (Cache, SourcesTable) = /*  */;
-/// let (cached, missing) = cache.items().partition_by_status(sources);
-/// for (name, digest) in cached {
-///     println!("source {name} is cached under digest {digest}");
-/// }
-/// for (name, source, cache_location) in missing {
-///     let artefact_path = cache.cache_dir().join(cache_location);
-///     println!("source {name} should be cached in {artefact_path} when fetched");
-/// }
-/// ```
+/// When fetching a source, check the cache subdirectory to use with [`CacheItems::relative_path`].
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 pub struct CacheItems {
     #[serde(flatten)]
@@ -62,7 +48,7 @@ pub struct CacheItems {
 }
 
 impl CacheItems {
-    /// Create a new empty cache items collection.
+    /// Create an empty collection.
     pub fn new() -> Self {
         Self {
             map: BTreeMap::new(),
@@ -81,10 +67,8 @@ impl CacheItems {
 
     /// Cache an artefact and return the digest of the [`Source`] which created it. Replaces any
     /// previous value for this source.
-    pub fn insert(&mut self, artefact: Artefact) -> Digest {
-        let digest = Source::digest(&artefact);
-        self.map.insert(digest.clone(), artefact);
-        digest
+    pub fn insert(&mut self, artefact: Artefact) {
+        self.map.insert(Source::digest(&artefact), artefact);
     }
 
     /// Removes a cached value for the given source, returning it if it existed.
@@ -262,10 +246,9 @@ mod tests {
             "path": "BBBBBBBB",
         }
         .unwrap();
-        let digest_1 = cache.items_mut().insert(artefact_1);
-        let digest_2 = cache.items_mut().insert(artefact_2);
+        cache.items_mut().insert(artefact_1);
+        cache.items_mut().insert(artefact_2);
         assert_eq!(cache.items().len(), 1);
-        assert_eq!(digest_1, digest_2);
     }
 
     #[test]
@@ -304,7 +287,7 @@ mod tests {
             "path": "/some/path",
         }
         .unwrap();
-        let _original_digest = cache.items_mut().insert(artefact);
+        cache.items_mut().insert(artefact);
 
         // Save
         cache.save().unwrap();
