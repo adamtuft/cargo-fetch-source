@@ -43,16 +43,20 @@ fn run() -> Result<(), error::AppError> {
         } => {
             let cache_dir = cache.cache_dir();
             let cache_items = cache.items_mut();
-            let (cached, err) = fetch(sources(&manifest_file)?, cache_dir, cache_items);
+            let sources = sources(&manifest_file)?;
+            let num_sources = sources.len();
+            let (artefacts, errors) = fetch_and_cache_sources(sources, cache_items, &cache_dir);
             cache.save().map_err(|err| {
                 AppError::cache_save_failed(cache.cache_file().to_path_buf(), err)
             })?;
-            for (name, artefact_path) in cached {
-                copy_artefact(&out_dir, name, &*artefact_path)?;
-            }
-            match err {
-                Some(e) => Err(e),
-                None => Ok(()),
+            copy_all_artefacts(&out_dir, artefacts)?;
+
+            // Report errors and return error status if any occurred
+            if errors.is_empty() {
+                Ok(())
+            } else {
+                report_fetch_results(errors, num_sources);
+                Err(AppError::fetch())
             }
         }
         args::ValidatedCommand::List {
@@ -68,17 +72,18 @@ fn run() -> Result<(), error::AppError> {
 
 // Fetch missing sources and return all the now-cached sources, and errors for those which couldn't
 // be fetched
-fn fetch(
-    // The full contents of the manifest sources table
+fn fetch_and_cache_sources(
     sources: SourcesTable,
-    cache_root: fetch_source::CacheRoot,
     cache_items: &mut fetch_source::CacheItems,
-) -> (Vec<(String, fetch_source::CacheDir)>, Option<AppError>) {
-    let num_sources = sources.len();
+    cache_root: &fetch_source::CacheRoot,
+) -> (
+    Vec<(String, fetch_source::CacheDir)>,
+    Vec<fetch_source::FetchError>,
+) {
     let (cached, missing) = sources
         .into_iter()
         .partition(|(_, s)| cache_items.contains(s));
-    let (mut fetched, errors) = fetch_all_parallel(missing, cache_items, &cache_root);
+    let (mut fetched, errors) = fetch_all_parallel(missing, cache_items, cache_root);
 
     // Combine the newly-fetched with the previously-cached artefacts. Drop the source values as
     // they are now contained in the cached artefacts. Instead, give the path to the cached
@@ -89,14 +94,20 @@ fn fetch(
             .map(|(name, source)| (name, cache_root.append(cache_items.relative_path(&source)))),
     );
 
-    // Report errors at this stage, returning an error status to indicate that errors occurred
-    // during fetching
-    if errors.is_empty() {
-        (fetched, None)
-    } else {
-        report_fetch_results(errors, num_sources);
-        (fetched, Some(AppError::fetch()))
+    (fetched, errors)
+}
+
+fn copy_all_artefacts<P>(
+    out_dir: P,
+    artefacts: Vec<(String, fetch_source::CacheDir)>,
+) -> Result<(), AppError>
+where
+    P: AsRef<std::path::Path>,
+{
+    for (name, artefact_path) in artefacts {
+        copy_artefact(&out_dir, name, &*artefact_path)?;
     }
+    Ok(())
 }
 
 fn copy_artefact<P, Q>(out_dir: P, name: String, artefact_path: Q) -> Result<(), AppError>
