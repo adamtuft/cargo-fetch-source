@@ -1,7 +1,6 @@
 use std::process::ExitCode;
 
 /// Internal error type that contains all application error variants.
-/// This type has private fields and is boxed to reduce stack size.
 #[derive(Debug, thiserror::Error)]
 pub enum AppErrorInner {
     #[error("Argument error: {0}")]
