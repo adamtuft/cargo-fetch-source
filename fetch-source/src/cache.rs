@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use derive_more::Deref;
 
-use crate::{Artefact, Source, SourceName};
+use crate::{Artefact, Source};
 
 const CACHE_FILE_NAME: &str = "fetch-source-cache.json";
 
@@ -117,7 +117,7 @@ impl CacheItems {
     }
 
     /// Check whether the cache contains the given source.
-    pub fn is_cached(&self, source: &Source) -> bool {
+    pub fn contains(&self, source: &Source) -> bool {
         self.map.contains_key(&Self::digest(source))
     }
 
@@ -144,57 +144,6 @@ impl CacheItems {
     /// Get the relative path for a source within a cache directory
     pub fn relative_path<S: AsRef<Source>>(&self, source: S) -> RelCacheDir {
         RelCacheDir(PathBuf::from(Self::digest(source.as_ref()).as_ref()))
-    }
-
-    /// Fetch and insert missing sources. Fetched sources are consumed and become cached artefacts.
-    /// Return the digests of the cached source artefacts. Sources which couldn't be fetched are
-    /// returned via errors.
-    pub fn fetch_missing<F, S>(
-        &mut self,
-        sources: S,
-        cache_root: CacheRoot,
-        fetch: F,
-    ) -> (Vec<(SourceName, CacheDir)>, Vec<crate::FetchError>)
-    where
-        S: Iterator<Item = (SourceName, Source)>,
-        F: FnOnce(
-            Vec<(SourceName, Source, CacheDir)>,
-        ) -> Vec<crate::FetchResult<(SourceName, Artefact, CacheDir)>>,
-    {
-        // Split the sources by their cached status. We can then only fetch missing sources and add
-        // the fetched sources to those already cached
-        let (mut cached, missing) = sources.fold(
-            (Vec::new(), Vec::new()),
-            |(mut cached, mut missing), (name, source)| {
-                let artefact_path = cache_root.append(self.relative_path(&source));
-                if self.is_cached(&source) {
-                    cached.push((name, artefact_path));
-                } else {
-                    missing.push((name, source, artefact_path));
-                }
-                (cached, missing)
-            },
-        );
-
-        // Fetch outstanding sources, caching artefacts and accumulating errors
-        let (fetched_results, errors) = fetch(missing).into_iter().fold(
-            (Vec::new(), Vec::new()),
-            |(mut cached, mut errors), result| {
-                match result {
-                    Ok((name, artefact, artefact_path)) => {
-                        cached.push((name, artefact_path));
-                        self.insert(artefact);
-                    }
-                    Err(error) => errors.push(error),
-                }
-                (cached, errors)
-            },
-        );
-
-        // Combine cached and fetched results
-        cached.extend(fetched_results);
-
-        (cached, errors)
     }
 }
 
@@ -362,10 +311,10 @@ mod tests {
 
         let source: Source =
             crate::build_from_json! { "tar": "www.example.com/test.tar.gz" }.unwrap();
-        assert!(!items.is_cached(&source));
+        assert!(!items.contains(&source));
 
         let digest = items.insert(artefact);
-        assert!(items.is_cached(&source));
+        assert!(items.contains(&source));
         assert_eq!(items.len(), 1);
 
         let retrieved = items.get(&source).unwrap();

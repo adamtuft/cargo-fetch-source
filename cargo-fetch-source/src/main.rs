@@ -1,5 +1,5 @@
 use crate::{error::AppError, fetch::fetch_all_parallel};
-use fetch_source::Source;
+use fetch_source::{Source, SourcesTable};
 use std::error::Error;
 
 mod args;
@@ -69,19 +69,36 @@ fn run() -> Result<(), error::AppError> {
     }
 }
 
+// Fetch missing sources and return all the now-cached sources, and errors for those which couldn't
+// be fetched
 fn fetch(
-    sources: fetch_source::SourcesTable,
-    cache_dir: fetch_source::CacheRoot,
+    // The full contents of the manifest sources table
+    sources: SourcesTable,
+    cache_root: fetch_source::CacheRoot,
     cache_items: &mut fetch_source::CacheItems,
 ) -> (Vec<(String, fetch_source::CacheDir)>, Option<AppError>) {
     let num_sources = sources.len();
-    let (cached, errors) =
-        cache_items.fetch_missing(sources.into_iter(), cache_dir, fetch_all_parallel);
+    let (cached, missing) = sources
+        .into_iter()
+        .partition(|(_, s)| cache_items.contains(s));
+    let (mut fetched, errors) = fetch_all_parallel(missing, cache_items, &cache_root);
+
+    // Combine the newly-fetched with the previously-cached artefacts. Drop the source values as
+    // they are now contained in the cached artefacts. Instead, give the path to the cached
+    // artefacts
+    fetched.extend(
+        cached
+            .into_iter()
+            .map(|(name, source)| (name, cache_root.append(cache_items.relative_path(&source)))),
+    );
+
+    // Report errors at this stage, returning an error status to indicate that errors occurred
+    // during fetching
     if errors.is_empty() {
-        (cached, None)
+        (fetched, None)
     } else {
         report_fetch_results(errors, num_sources);
-        (cached, Some(AppError::Fetch))
+        (fetched, Some(AppError::Fetch))
     }
 }
 
@@ -97,7 +114,6 @@ where
         });
     }
     let dest = out_dir.as_ref().join(Source::as_path_component(&name));
-    println!("{name}: COPY {:#?} -> {dest:#?}", artefact_path.as_ref());
     dircpy::copy_dir(artefact_path.as_ref(), &dest).map_err(|err| {
         AppError::CopyArtefactFailed {
             src: artefact_path.as_ref().to_path_buf(),

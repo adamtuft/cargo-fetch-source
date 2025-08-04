@@ -254,6 +254,7 @@ fn test_fetch_multiple_sources() {
 /// This test verifies the caching functionality works correctly with real sources.
 #[test]
 fn test_source_caching() {
+    use std::collections::HashMap;
     let cargo_toml = r#"
 [package.metadata.fetch-source]
 "syn-cached" = { git = "https://github.com/dtolnay/syn.git" }
@@ -278,55 +279,42 @@ fn test_source_caching() {
         .get("syn-cached")
         .expect("syn-cached source not found");
     assert!(
-        !cache.items().is_cached(syn_source),
+        !cache.items().contains(syn_source),
         "Source should not be cached initially"
     );
 
-    // Manually partition sources by cache status since there's no partition_by_status method
-    let mut cached_sources: Vec<String> = Vec::new();
-    let mut missing_sources: Vec<(String, fetch_source::Source)> = Vec::new();
+    let (cached, missing): (HashMap<_, _>, HashMap<_, _>) = sources
+        .into_iter()
+        .partition(|(_, s)| cache.items().contains(s));
 
-    for (name, source) in sources {
-        match cache.items().status(&source) {
-            fetch_source::CacheStatus::Cached(_) => {
-                // For cached sources, we don't need the digest in this test
-                cached_sources.push(name.clone());
-            }
-            fetch_source::CacheStatus::Missing(_) => {
-                missing_sources.push((name.clone(), source));
-            }
-        }
-    }
-
-    assert_eq!(
-        cached_sources.len(),
-        0,
-        "No sources should be cached initially"
+    assert_eq!(cached.len(), 0, "No sources should be cached initially");
+    assert_eq!(missing.len(), 1, "One source should be missing");
+    assert!(
+        missing.contains_key("syn-cached"),
+        "Missing source should be among missing"
     );
-    assert_eq!(missing_sources.len(), 1, "One source should be missing");
 
-    // Fetch the missing source using the cache
-    let cache_dir_handle = cache.cache_dir();
-    let (cached_digests, fetch_errors) =
-        cache
-            .items_mut()
-            .fetch_missing(missing_sources.into_iter(), cache_dir_handle, |specs| {
-                specs
-                    .into_iter()
-                    .map(|(name, source, artefact_path)| {
-                        source
-                            .fetch(&*artefact_path)
-                            .map(|artefact| (name, artefact, artefact_path))
-                    })
-                    .collect()
-            });
+    let (successes, errors): (HashMap<_, _>, HashMap<_, _>) = missing
+        .into_iter()
+        .map(|(n, s)| {
+            let dest = cache.cache_dir().append(cache.items().relative_path(&s));
+            (n, s.fetch(&*dest))
+        })
+        .partition(|(_, result)| result.is_ok());
 
     // Verify the fetch succeeded
-    assert_eq!(fetch_errors.len(), 0, "No fetch errors should occur");
-    assert_eq!(cached_digests.len(), 1, "One source should be cached now");
+    assert_eq!(errors.len(), 0, "No fetch errors should occur");
+    assert_eq!(successes.len(), 1, "One source should be cached now");
+    assert!(
+        successes.contains_key("syn-cached"),
+        "Cached source name should match"
+    );
 
-    let (cached_name, _cached_digest, _cached_path) = &cached_digests[0];
-    assert_eq!(cached_name, "syn-cached", "Cached source name should match");
+    for (_, result) in successes {
+        cache
+            .items_mut()
+            .insert(result.expect("Successful fetch should return an Ok(artefact)"));
+    }
 
     // Verify the source is now cached
     assert!(
@@ -348,7 +336,7 @@ fn test_source_caching() {
         .1;
 
     assert!(
-        cache.items().is_cached(&syn_source_again),
+        cache.items().contains(&syn_source_again),
         "Source should be cached now"
     );
 
@@ -396,7 +384,7 @@ fn test_source_caching() {
         "Reloaded cache should contain one item"
     );
     assert!(
-        reloaded_cache.items().is_cached(&syn_source_again),
+        reloaded_cache.items().contains(&syn_source_again),
         "Source should still be cached after reload"
     );
 
@@ -404,27 +392,13 @@ fn test_source_caching() {
     let sources_again = try_parse_toml(cargo_toml).expect("Failed to parse TOML for second test");
 
     // Manually partition again for the second test
-    let mut cached_sources_2: Vec<String> = Vec::new();
-    let mut missing_sources_2: Vec<(String, fetch_source::Source)> = Vec::new();
+    let (cached, missing): (HashMap<_, _>, HashMap<_, _>) = sources_again
+        .into_iter()
+        .partition(|(_, s)| cache.items().contains(s));
 
-    for (name, source) in sources_again {
-        match reloaded_cache.items().status(&source) {
-            fetch_source::CacheStatus::Cached(_) => {
-                cached_sources_2.push(name.clone());
-            }
-            fetch_source::CacheStatus::Missing(_) => {
-                missing_sources_2.push((name.clone(), source));
-            }
-        }
-    }
-
+    assert_eq!(cached.len(), 1, "One source should be cached after reload");
     assert_eq!(
-        cached_sources_2.len(),
-        1,
-        "One source should be cached after reload"
-    );
-    assert_eq!(
-        missing_sources_2.len(),
+        missing.len(),
         0,
         "No sources should be missing after reload"
     );
