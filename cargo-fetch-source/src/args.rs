@@ -140,7 +140,7 @@ impl ValidatedArgs {
                         break Ok(manifest);
                     }
                     if !current_dir.pop() {
-                        return Err(AppError::ArgValidation(
+                        return Err(AppError::arg_validation(
                             "could not find 'Cargo.toml' in the current directory or any parent directory".to_string(),
                         ));
                     }
@@ -156,7 +156,7 @@ impl ValidatedArgs {
                 Some(dir) => Ok(PathBuf::from(dir)),
                 None => {
                     let project_dirs = directories::ProjectDirs::from("", "", "cargo-fetch-source")
-                        .ok_or(AppError::ArgValidation(
+                        .ok_or(AppError::arg_validation(
                             "could not determine cache directory".to_string(),
                         ))?;
                     Ok(project_dirs.cache_dir().to_path_buf())
@@ -172,7 +172,7 @@ impl ValidatedArgs {
             std::fs::create_dir_all(&cache_dir)?;
         }
         fetch_source::Cache::load(&cache_dir).map_err(|e| {
-            AppError::ArgValidation(format!(
+            AppError::arg_validation(format!(
                 "failed to load cache in {}: {}",
                 cache_dir.display(),
                 e
@@ -197,7 +197,7 @@ impl TryFrom<Command> for ValidatedCommand {
 
                 // Validate that the output directory exists
                 if !out_dir.exists() {
-                    return Err(AppError::ArgValidation(format!(
+                    return Err(AppError::arg_validation(format!(
                         "output directory does not exist: {}",
                         out_dir.display()
                     )));
