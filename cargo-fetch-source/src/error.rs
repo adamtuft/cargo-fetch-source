@@ -12,6 +12,8 @@ pub enum AppErrorKind {
     /// Manifest file parsing errors
     ManifestParse,
     /// Source fetching errors
+    /// Used to indicate that errors occurred during fetching; these errors are reported immediately,
+    /// so this variant only exists to produce the correct `ExitCode`.
     Fetch,
     /// Artefact copying errors
     CopyArtefact,
