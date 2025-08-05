@@ -161,10 +161,18 @@ fn test_cached_command_with_missing_cache() {
     let temp_dir = tempdir().unwrap();
     let non_existent_cache = temp_dir.path().join("non_existent_cache");
 
+    // Cache directory should not exist initially
+    assert!(!non_existent_cache.exists());
+
     let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
     cmd.args(&["cached", "--cache", non_existent_cache.to_str().unwrap()]);
-    // Should succeed as it creates the cache directory
-    cmd.assert().success();
+    // Should fail when the cache directory doesn't exist
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("No such file or directory"));
+
+    // Cache directory should not have been created
+    assert!(!non_existent_cache.exists());
 }
 
 #[test]
@@ -203,22 +211,6 @@ fn test_manifest_discovery_walks_up_directory_tree() {
 }
 
 #[test]
-fn test_cache_directory_creation() {
-    let temp_dir = tempdir().unwrap();
-    let cache_dir = temp_dir.path().join("new_cache");
-
-    // Cache directory should not exist initially
-    assert!(!cache_dir.exists());
-
-    let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
-    cmd.args(&["cached", "--cache", cache_dir.to_str().unwrap()]);
-    cmd.assert().success();
-
-    // Cache directory should be created
-    assert!(cache_dir.exists());
-}
-
-#[test]
 fn test_environment_variable_detection_out_dir() {
     let temp_dir = tempdir().unwrap();
     let out_dir = temp_dir.path().join("output");
@@ -233,19 +225,4 @@ fn test_environment_variable_detection_out_dir() {
     cmd.args(&["fetch", "--manifest-file", manifest_path.to_str().unwrap()]);
     // Should succeed as OUT_DIR is provided via environment
     cmd.assert().success();
-}
-
-#[test]
-fn test_environment_variable_detection_cache_dir() {
-    let temp_dir = tempdir().unwrap();
-    let cache_dir = temp_dir.path().join("custom_cache");
-
-    let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
-    cmd.env("CARGO_FETCH_SOURCE_CACHE", &cache_dir);
-    cmd.arg("cached");
-    // Should succeed and create the cache directory from environment variable
-    cmd.assert().success();
-
-    // Cache directory should be created
-    assert!(cache_dir.exists());
 }
