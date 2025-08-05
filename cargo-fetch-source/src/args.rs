@@ -234,7 +234,7 @@ impl TryFrom<Command> for ValidatedCommand {
             } => {
                 let cache_dir = ValidatedArgs::detect_cache_dir(cache_dir_arg)?;
                 // For the cached command, don't create the cache directory if it doesn't exist
-                let cache = fetch_source::Cache::load(&cache_dir).map_err(|e| {
+                let cache = fetch_source::Cache::read(&cache_dir).map_err(|e| {
                     AppError::arg_validation(format!(
                         "failed to load cache in {}: {}",
                         cache_dir.display(),
