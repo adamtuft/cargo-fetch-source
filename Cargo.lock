@@ -146,7 +146,6 @@ dependencies = [
  "anyhow",
  "clap",
  "console",
- "derive_more",
  "dircpy",
  "directories",
  "fetch-source",
