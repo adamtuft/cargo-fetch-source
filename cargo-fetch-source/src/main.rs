@@ -1,4 +1,4 @@
-use crate::{error::{AppError, AppErrorInner}, fetch::fetch_all_parallel};
+use crate::{error::{AppError, AppErrorKind}, fetch::fetch_all_parallel};
 use fetch_source::{Source, SourcesTable};
 use std::error::Error;
 
@@ -10,9 +10,9 @@ use args::OutputFormat;
 
 fn main() -> std::process::ExitCode {
     if let Err(err) = run() {
-        match &*err {
+        match err.error_kind() {
             // Fetch errors are reported inside run(), so just convert error to exit code
-            AppErrorInner::Fetch => {}
+            AppErrorKind::Fetch => {}
             _ => eprintln!("{err}"),
         }
         err.into()
