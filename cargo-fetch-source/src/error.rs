@@ -86,13 +86,6 @@ impl std::error::Error for AppError {
     }
 }
 
-impl std::ops::Deref for AppError {
-    type Target = AppErrorInner;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
 
 impl AppError {
     /// Create a new AppError with the given inner error and kind
