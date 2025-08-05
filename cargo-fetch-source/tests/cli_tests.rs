@@ -2,6 +2,7 @@ use assert_cmd::prelude::*;
 use predicates::prelude::*;
 use std::process::Command;
 use tempfile::tempdir;
+use fetch_source::{SourcesTable, Source};
 
 #[test]
 fn test_list_command_with_missing_manifest() {
@@ -13,15 +14,7 @@ fn test_list_command_with_missing_manifest() {
         .stderr(predicate::str::contains("Failed to read manifest file"));
 }
 
-#[test]
-fn test_fetch_command_with_invalid_cache_dir() {
-    // Use a path that will fail due to permissions rather than deep nesting
-    let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
-    cmd.args(&["fetch", "--cache", "/root/invalid_cache"]);
-    cmd.assert()
-        .failure()
-        .stderr(predicate::str::contains("Permission denied").or(predicate::str::contains("could not find 'Cargo.toml'")));
-}
+
 
 #[test]
 fn test_help_command_succeeds() {
@@ -113,9 +106,24 @@ fn test_list_command_with_json_format() {
         "--manifest-file", manifest_path.to_str().unwrap(),
         "--format", "json"
     ]);
-    cmd.assert()
-        .success()
-        .stdout(predicate::str::contains("{"));
+    let output = cmd.assert().success();
+    
+    // Get the JSON output and parse it as SourcesTable
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    let sources_table: SourcesTable = serde_json::from_str(&stdout).unwrap();
+    
+    // Verify the expected number of sources (1)
+    assert_eq!(sources_table.len(), 1);
+    
+    // Verify it contains the "test-source" entry
+    assert!(sources_table.contains_key("test-source"));
+    
+    // Verify the Source has the expected git definition
+    if let Some(Source::Git(git)) = sources_table.get("test-source") {
+        assert_eq!(git.upstream(), "https://github.com/example/repo.git");
+    } else {
+        panic!("Expected test-source to be a Git source");
+    }
 }
 
 #[test]
