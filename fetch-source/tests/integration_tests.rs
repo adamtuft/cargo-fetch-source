@@ -271,7 +271,7 @@ fn test_source_caching() {
     std::fs::create_dir_all(&cache_dir).expect("Failed to create cache dir");
 
     // Load the cache (should be empty initially)
-    let mut cache = Cache::load(&cache_dir).expect("Failed to load cache");
+    let mut cache = Cache::load_or_create(&cache_dir).expect("Failed to load cache");
     assert!(cache.items().is_empty(), "Cache should be empty initially");
 
     // Check that the source is not cached yet
@@ -372,12 +372,12 @@ fn test_source_caching() {
 
     // Verify cache file exists
     assert!(
-        Cache::exists(&cache_dir),
+        Cache::cache_file_exists(&cache_dir),
         "Cache file should exist after saving"
     );
 
     // Test that we can reload the cache and the source is still there
-    let reloaded_cache = Cache::load(&cache_dir).expect("Failed to reload cache");
+    let reloaded_cache = Cache::load_or_create(&cache_dir).expect("Failed to reload cache");
     assert_eq!(
         reloaded_cache.items().len(),
         1,

@@ -106,7 +106,7 @@ fetch_source::try_parse_toml(cargo_toml)?.into_par_iter()
 //! ```rust
 //! # use fetch_source::Cache;
 //! # fn main() -> Result<(), fetch_source::Error> {
-//! let cache = Cache::load(std::env::temp_dir())?;
+//! let cache = Cache::load_or_create(std::env::temp_dir())?;
 //!
 //! let project1 = r#"
 //! [package.metadata.fetch-source]
@@ -166,7 +166,7 @@ mod source;
 mod tar;
 
 pub use cache::{Cache, CacheDir, CacheItems, CacheRoot, RelCacheDir};
-pub use error::{Error, FetchError};
+pub use error::{Error, ErrorKind, FetchError};
 pub use git::Git;
 pub use source::{
     Artefact, Digest, FetchResult, Source, SourceName, SourceParseError, SourcesTable,

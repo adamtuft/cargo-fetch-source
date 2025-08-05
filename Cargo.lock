@@ -517,6 +517,7 @@ dependencies = [
  "serde_json",
  "sha256",
  "tar",
+ "tempfile",
  "thiserror",
  "toml",
 ]

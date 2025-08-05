@@ -171,7 +171,7 @@ impl ValidatedArgs {
         if !cache_dir.exists() {
             std::fs::create_dir_all(&cache_dir)?;
         }
-        fetch_source::Cache::load(&cache_dir).map_err(|e| {
+        fetch_source::Cache::load_or_create(&cache_dir).map_err(|e| {
             AppError::arg_validation(format!(
                 "failed to load cache in {}: {}",
                 cache_dir.display(),
