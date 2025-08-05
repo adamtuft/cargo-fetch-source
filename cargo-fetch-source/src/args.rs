@@ -210,7 +210,9 @@ impl TryFrom<Command> for ValidatedCommand {
                     rayon::ThreadPoolBuilder::new()
                         .num_threads(threads as usize)
                         .build_global()
-                        .map_err(|e| AppError::ArgValidation(format!("Failed to set thread count: {e}")))?;
+                        .map_err(|e| {
+                            AppError::ArgValidation(format!("Failed to set thread count: {e}"))
+                        })?;
                 }
 
                 Ok(ValidatedCommand::Fetch {

@@ -1,4 +1,7 @@
-use crate::{error::{AppError, AppErrorKind}, fetch::fetch_all_parallel};
+use crate::{
+    error::{AppError, AppErrorKind},
+    fetch::fetch_all_parallel,
+};
 use fetch_source::{Source, SourcesTable};
 use std::error::Error;
 
@@ -22,16 +25,11 @@ fn main() -> std::process::ExitCode {
 }
 
 fn sources(manifest_file: &std::path::Path) -> Result<fetch_source::SourcesTable, error::AppError> {
-    let document =
-        std::fs::read_to_string(manifest_file).map_err(|err| AppError::manifest_read(
-            format!("{}", manifest_file.display()),
-            err,
-        ))?;
+    let document = std::fs::read_to_string(manifest_file)
+        .map_err(|err| AppError::manifest_read(format!("{}", manifest_file.display()), err))?;
 
-    fetch_source::try_parse_toml(&document).map_err(|err| AppError::manifest_parse(
-        format!("{}", manifest_file.display()),
-        err,
-    ))
+    fetch_source::try_parse_toml(&document)
+        .map_err(|err| AppError::manifest_parse(format!("{}", manifest_file.display()), err))
 }
 
 fn run() -> Result<(), error::AppError> {
@@ -46,10 +44,9 @@ fn run() -> Result<(), error::AppError> {
             let cache_dir = cache.cache_dir();
             let cache_items = cache.items_mut();
             let (cached, err) = fetch(sources(&manifest_file)?, cache_dir, cache_items);
-            cache.save().map_err(|err| AppError::cache_save_failed(
-                cache.cache_file().to_path_buf(),
-                err,
-            ))?;
+            cache.save().map_err(|err| {
+                AppError::cache_save_failed(cache.cache_file().to_path_buf(), err)
+            })?;
             for (name, artefact_path) in cached {
                 copy_artefact(&out_dir, name, &*artefact_path)?;
             }
@@ -115,11 +112,7 @@ where
     }
     let dest = out_dir.as_ref().join(Source::as_path_component(&name));
     dircpy::copy_dir(artefact_path.as_ref(), &dest).map_err(|err| {
-        AppError::copy_artefact_failed(
-            artefact_path.as_ref().to_path_buf(),
-            dest,
-            err,
-        )
+        AppError::copy_artefact_failed(artefact_path.as_ref().to_path_buf(), dest, err)
     })?;
     Ok(())
 }

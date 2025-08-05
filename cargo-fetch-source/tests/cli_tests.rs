@@ -1,8 +1,8 @@
 use assert_cmd::prelude::*;
+use fetch_source::{Source, SourcesTable};
 use predicates::prelude::*;
 use std::process::Command;
 use tempfile::tempdir;
-use fetch_source::{SourcesTable, Source};
 
 #[test]
 fn test_list_command_with_missing_manifest() {
@@ -13,8 +13,6 @@ fn test_list_command_with_missing_manifest() {
         .code(3)
         .stderr(predicate::str::contains("Failed to read manifest file"));
 }
-
-
 
 #[test]
 fn test_help_command_succeeds() {
@@ -37,20 +35,20 @@ fn test_version_command_succeeds() {
 #[test]
 fn test_fetch_command_with_missing_out_dir() {
     let temp_dir = tempdir().unwrap();
-    
+
     // Create a valid manifest file
     let manifest_path = temp_dir.path().join("Cargo.toml");
-    std::fs::write(&manifest_path, 
-        "[package.metadata.fetch-source]\n"
-    ).unwrap();
-    
+    std::fs::write(&manifest_path, "[package.metadata.fetch-source]\n").unwrap();
+
     let non_existent_out = temp_dir.path().join("non_existent_output");
-    
+
     let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
     cmd.args(&[
-        "fetch", 
-        "--manifest-file", manifest_path.to_str().unwrap(),
-        "--out-dir", non_existent_out.to_str().unwrap()
+        "fetch",
+        "--manifest-file",
+        manifest_path.to_str().unwrap(),
+        "--out-dir",
+        non_existent_out.to_str().unwrap(),
     ]);
     cmd.assert()
         .failure()
@@ -61,7 +59,7 @@ fn test_fetch_command_with_missing_out_dir() {
 #[test]
 fn test_list_command_with_missing_manifest_in_cwd() {
     let temp_dir = tempdir().unwrap();
-    
+
     let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
     cmd.current_dir(temp_dir.path());
     cmd.arg("list");
@@ -74,14 +72,16 @@ fn test_list_command_with_missing_manifest_in_cwd() {
 #[test]
 fn test_list_command_with_valid_manifest() {
     let temp_dir = tempdir().unwrap();
-    
+
     // Create a valid manifest file with some sources
     let manifest_path = temp_dir.path().join("Cargo.toml");
-    std::fs::write(&manifest_path, 
+    std::fs::write(
+        &manifest_path,
         "[package.metadata.fetch-source]\n\
-         test-source = { git = \"https://github.com/example/repo.git\" }\n"
-    ).unwrap();
-    
+         test-source = { git = \"https://github.com/example/repo.git\" }\n",
+    )
+    .unwrap();
+
     let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
     cmd.args(&["list", "--manifest-file", manifest_path.to_str().unwrap()]);
     cmd.assert()
@@ -92,32 +92,36 @@ fn test_list_command_with_valid_manifest() {
 #[test]
 fn test_list_command_with_json_format() {
     let temp_dir = tempdir().unwrap();
-    
+
     // Create a valid manifest file
     let manifest_path = temp_dir.path().join("Cargo.toml");
-    std::fs::write(&manifest_path, 
+    std::fs::write(
+        &manifest_path,
         "[package.metadata.fetch-source]\n\
-         test-source = { git = \"https://github.com/example/repo.git\" }\n"
-    ).unwrap();
-    
+         test-source = { git = \"https://github.com/example/repo.git\" }\n",
+    )
+    .unwrap();
+
     let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
     cmd.args(&[
-        "list", 
-        "--manifest-file", manifest_path.to_str().unwrap(),
-        "--format", "json"
+        "list",
+        "--manifest-file",
+        manifest_path.to_str().unwrap(),
+        "--format",
+        "json",
     ]);
     let output = cmd.assert().success();
-    
+
     // Get the JSON output and parse it as SourcesTable
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     let sources_table: SourcesTable = serde_json::from_str(&stdout).unwrap();
-    
+
     // Verify the expected number of sources (1)
     assert_eq!(sources_table.len(), 1);
-    
+
     // Verify it contains the "test-source" entry
     assert!(sources_table.contains_key("test-source"));
-    
+
     // Verify the Source has the expected git definition
     if let Some(Source::Git(git)) = sources_table.get("test-source") {
         assert_eq!(git.upstream(), "https://github.com/example/repo.git");
@@ -129,19 +133,23 @@ fn test_list_command_with_json_format() {
 #[test]
 fn test_list_command_with_toml_format() {
     let temp_dir = tempdir().unwrap();
-    
+
     // Create a valid manifest file
     let manifest_path = temp_dir.path().join("Cargo.toml");
-    std::fs::write(&manifest_path, 
+    std::fs::write(
+        &manifest_path,
         "[package.metadata.fetch-source]\n\
-         test-source = { git = \"https://github.com/example/repo.git\" }\n"
-    ).unwrap();
-    
+         test-source = { git = \"https://github.com/example/repo.git\" }\n",
+    )
+    .unwrap();
+
     let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
     cmd.args(&[
-        "list", 
-        "--manifest-file", manifest_path.to_str().unwrap(),
-        "--format", "toml"
+        "list",
+        "--manifest-file",
+        manifest_path.to_str().unwrap(),
+        "--format",
+        "toml",
     ]);
     cmd.assert()
         .success()
@@ -152,7 +160,7 @@ fn test_list_command_with_toml_format() {
 fn test_cached_command_with_missing_cache() {
     let temp_dir = tempdir().unwrap();
     let non_existent_cache = temp_dir.path().join("non_existent_cache");
-    
+
     let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
     cmd.args(&["cached", "--cache", non_existent_cache.to_str().unwrap()]);
     // Should succeed as it creates the cache directory
@@ -171,18 +179,20 @@ fn test_invalid_subcommand() {
 #[test]
 fn test_manifest_discovery_walks_up_directory_tree() {
     let temp_dir = tempdir().unwrap();
-    
+
     // Create a Cargo.toml in the root
     let manifest_path = temp_dir.path().join("Cargo.toml");
-    std::fs::write(&manifest_path, 
+    std::fs::write(
+        &manifest_path,
         "[package.metadata.fetch-source]\n\
-         test-source = { git = \"https://github.com/example/repo.git\" }\n"
-    ).unwrap();
-    
+         test-source = { git = \"https://github.com/example/repo.git\" }\n",
+    )
+    .unwrap();
+
     // Create a subdirectory
     let sub_dir = temp_dir.path().join("subdir");
     std::fs::create_dir(&sub_dir).unwrap();
-    
+
     // Run command from subdirectory - should find the manifest in parent
     let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
     cmd.current_dir(&sub_dir);
@@ -192,18 +202,18 @@ fn test_manifest_discovery_walks_up_directory_tree() {
         .stdout(predicate::str::contains("test-source"));
 }
 
-#[test] 
+#[test]
 fn test_cache_directory_creation() {
     let temp_dir = tempdir().unwrap();
     let cache_dir = temp_dir.path().join("new_cache");
-    
+
     // Cache directory should not exist initially
     assert!(!cache_dir.exists());
-    
+
     let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
     cmd.args(&["cached", "--cache", cache_dir.to_str().unwrap()]);
     cmd.assert().success();
-    
+
     // Cache directory should be created
     assert!(cache_dir.exists());
 }
@@ -213,19 +223,14 @@ fn test_environment_variable_detection_out_dir() {
     let temp_dir = tempdir().unwrap();
     let out_dir = temp_dir.path().join("output");
     std::fs::create_dir(&out_dir).unwrap();
-    
+
     // Create a valid manifest file
     let manifest_path = temp_dir.path().join("Cargo.toml");
-    std::fs::write(&manifest_path, 
-        "[package.metadata.fetch-source]\n"
-    ).unwrap();
-    
+    std::fs::write(&manifest_path, "[package.metadata.fetch-source]\n").unwrap();
+
     let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
     cmd.env("OUT_DIR", &out_dir);
-    cmd.args(&[
-        "fetch", 
-        "--manifest-file", manifest_path.to_str().unwrap()
-    ]);
+    cmd.args(&["fetch", "--manifest-file", manifest_path.to_str().unwrap()]);
     // Should succeed as OUT_DIR is provided via environment
     cmd.assert().success();
 }
@@ -234,13 +239,13 @@ fn test_environment_variable_detection_out_dir() {
 fn test_environment_variable_detection_cache_dir() {
     let temp_dir = tempdir().unwrap();
     let cache_dir = temp_dir.path().join("custom_cache");
-    
+
     let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
     cmd.env("CARGO_FETCH_SOURCE_CACHE", &cache_dir);
     cmd.arg("cached");
     // Should succeed and create the cache directory from environment variable
     cmd.assert().success();
-    
+
     // Cache directory should be created
     assert!(cache_dir.exists());
 }

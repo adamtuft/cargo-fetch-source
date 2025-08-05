@@ -71,7 +71,7 @@ pub enum AppErrorInner {
 /// manifest file vs. copying an artefact directory). In particular, the `Fetch` variant is only
 /// used to indicate that errors occurred during fetching - these errors are reported immediately
 /// rather than being returned, so this variant only exists to produce the correct `ExitCode`.
-/// 
+///
 /// This type uses the newtype pattern to wrap a boxed inner error, reducing stack size.
 #[derive(Debug)]
 pub struct AppError(Box<AppErrorInner>, AppErrorKind);
@@ -88,7 +88,6 @@ impl std::error::Error for AppError {
     }
 }
 
-
 impl AppError {
     /// Create a new AppError with the given inner error and kind
     pub fn new(inner: AppErrorInner, kind: AppErrorKind) -> Self {
@@ -102,17 +101,26 @@ impl AppError {
 
     /// Create an argument validation error
     pub fn arg_validation(msg: String) -> Self {
-        Self::new(AppErrorInner::ArgValidation(msg), AppErrorKind::ArgValidation)
+        Self::new(
+            AppErrorInner::ArgValidation(msg),
+            AppErrorKind::ArgValidation,
+        )
     }
 
     /// Create a manifest read error
     pub fn manifest_read(manifest: String, err: std::io::Error) -> Self {
-        Self::new(AppErrorInner::ManifestRead { manifest, err }, AppErrorKind::ManifestRead)
+        Self::new(
+            AppErrorInner::ManifestRead { manifest, err },
+            AppErrorKind::ManifestRead,
+        )
     }
 
     /// Create a manifest parse error
     pub fn manifest_parse(manifest: String, err: fetch_source::SourceParseError) -> Self {
-        Self::new(AppErrorInner::ManifestParse { manifest, err }, AppErrorKind::ManifestParse)
+        Self::new(
+            AppErrorInner::ManifestParse { manifest, err },
+            AppErrorKind::ManifestParse,
+        )
     }
 
     /// Create a fetch error
@@ -121,18 +129,31 @@ impl AppError {
     }
 
     /// Create a copy artefact failed error
-    pub fn copy_artefact_failed(src: std::path::PathBuf, dst: std::path::PathBuf, err: std::io::Error) -> Self {
-        Self::new(AppErrorInner::CopyArtefactFailed { src, dst, err }, AppErrorKind::CopyArtefact)
+    pub fn copy_artefact_failed(
+        src: std::path::PathBuf,
+        dst: std::path::PathBuf,
+        err: std::io::Error,
+    ) -> Self {
+        Self::new(
+            AppErrorInner::CopyArtefactFailed { src, dst, err },
+            AppErrorKind::CopyArtefact,
+        )
     }
 
     /// Create a cache save failed error
     pub fn cache_save_failed(path: std::path::PathBuf, err: fetch_source::Error) -> Self {
-        Self::new(AppErrorInner::CacheSaveFailed { path, err }, AppErrorKind::CacheSave)
+        Self::new(
+            AppErrorInner::CacheSaveFailed { path, err },
+            AppErrorKind::CacheSave,
+        )
     }
 
     /// Create a missing artefact directory error
     pub fn missing_artefact_directory(name: String, path: std::path::PathBuf) -> Self {
-        Self::new(AppErrorInner::MissingArtefactDirectory { name, path }, AppErrorKind::MissingArtefact)
+        Self::new(
+            AppErrorInner::MissingArtefactDirectory { name, path },
+            AppErrorKind::MissingArtefact,
+        )
     }
 }
 
