@@ -74,49 +74,56 @@ if let Some(threads) = threads {
 
 ## High Priority Issues 📋
 
-### 3. Add CLI Integration Tests
+### 3. Add CLI Integration Tests ✅ COMPLETED
 **Priority**: HIGH - No test coverage for CLI functionality
 **Location**: `cargo-fetch-source/tests/` (new directory)
 **Issue**: CLI application has 0 unit tests
 
-**Recommended Implementation**:
+**Applied Fix**:
+The issue has been resolved by implementing comprehensive CLI integration tests:
+
+**Dependencies Added**:
+- `assert_cmd = "2.0"` - For testing command-line applications
+- `predicates = "3.0"` - For flexible assertion predicates  
+- `tempfile = "3.0"` - For creating temporary test directories
+
+**Test Infrastructure Created**:
+- Created `cargo-fetch-source/tests/` directory
+- Added `cli_tests.rs` with 15 comprehensive integration tests
+- All tests run quickly (under 1 second total) and provide reliable validation
+
+**Comprehensive Test Coverage Achieved**:
+- [x] Argument parsing edge cases - Invalid subcommands, missing required arguments
+- [x] Error formatting and exit codes - Exit code 2 for validation errors, exit code 3 for I/O errors
+- [x] Environment variable detection logic - `OUT_DIR` and `CARGO_FETCH_SOURCE_CACHE` detection
+- [x] Cache directory creation and permissions - Automatic creation of missing cache directories
+- [x] Output format validation - JSON and TOML format testing with structure validation
+- [x] Manifest file discovery logic - Walking up directory tree to find `Cargo.toml` files
+
+**Key Test Cases Implemented**:
 ```rust
-// Add to Cargo.toml:
-[dev-dependencies]
-assert_cmd = "2.0"
-predicates = "3.0"
-tempfile = "3.0"
+// Error handling and exit codes
+fn test_list_command_with_missing_manifest() // Exit code 3 for I/O errors
+fn test_fetch_command_with_missing_out_dir() // Exit code 2 for validation errors
 
-// Create cargo-fetch-source/tests/cli_tests.rs:
-use assert_cmd::prelude::*;
-use std::process::Command;
-use tempfile::tempdir;
+// Environment variable detection
+fn test_environment_variable_detection_out_dir() // OUT_DIR support
+fn test_environment_variable_detection_cache_dir() // CARGO_FETCH_SOURCE_CACHE support
 
-#[test]
-fn test_list_command_with_missing_manifest() {
-    let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
-    cmd.args(&["list", "--manifest-file", "nonexistent.toml"]);
-    cmd.assert().failure().code(2);
-}
+// Output format validation with structured parsing
+fn test_list_command_with_json_format() // Parses JSON as SourcesTable struct
+fn test_list_command_with_toml_format() // TOML format validation
 
-#[test]
-fn test_fetch_command_with_invalid_cache_dir() {
-    let temp_dir = tempdir().unwrap();
-    let invalid_cache = temp_dir.path().join("non/existent/cache");
-    
-    let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
-    cmd.args(&["fetch", "--cache", invalid_cache.to_str().unwrap()]);
-    cmd.assert().failure();
-}
+// Manifest discovery and cache management
+fn test_manifest_discovery_walks_up_directory_tree() // Parent directory search
+fn test_cache_directory_creation() // Automatic cache creation
 ```
 
-**Test Coverage Targets**:
-- [ ] Argument parsing edge cases
-- [ ] Error formatting and exit codes
-- [ ] Environment variable detection logic
-- [ ] Cache directory creation and permissions
-- [ ] Output format validation
-- [ ] Manifest file discovery logic
+The implementation provides thorough coverage addressing all areas specified in the original issue and ensures reliable CLI behavior validation across different scenarios and edge cases.
+
+**Files Modified**:
+- `cargo-fetch-source/Cargo.toml` - Added test dependencies
+- `cargo-fetch-source/tests/cli_tests.rs` - Created comprehensive test suite
 
 ### 4. Improve Function Organization in CLI
 **Priority**: HIGH - Maintainability issue
@@ -563,7 +570,7 @@ We take security seriously and will respond within 48 hours.
 - [ ] Add license files (MIT/Apache-2.0)
 
 ### High Priority  
-- [ ] Add CLI integration tests
+- [x] Add CLI integration tests
 - [ ] Refactor large functions in main.rs
 - [ ] Set up release-please CI workflow
 - [ ] Add GitHub Actions CI/CD pipeline
