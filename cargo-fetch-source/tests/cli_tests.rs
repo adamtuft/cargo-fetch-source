@@ -7,7 +7,7 @@ use tempfile::tempdir;
 #[test]
 fn test_list_command_with_missing_manifest() {
     let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
-    cmd.args(&["list", "--manifest-file", "nonexistent.toml"]);
+    cmd.args(["list", "--manifest-file", "nonexistent.toml"]);
     cmd.assert()
         .failure()
         .code(3)
@@ -43,7 +43,7 @@ fn test_fetch_command_with_missing_out_dir() {
     let non_existent_out = temp_dir.path().join("non_existent_output");
 
     let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
-    cmd.args(&[
+    cmd.args([
         "fetch",
         "--manifest-file",
         manifest_path.to_str().unwrap(),
@@ -83,7 +83,7 @@ fn test_list_command_with_valid_manifest() {
     .unwrap();
 
     let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
-    cmd.args(&["list", "--manifest-file", manifest_path.to_str().unwrap()]);
+    cmd.args(["list", "--manifest-file", manifest_path.to_str().unwrap()]);
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("test-source"));
@@ -103,7 +103,7 @@ fn test_list_command_with_json_format() {
     .unwrap();
 
     let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
-    cmd.args(&[
+    cmd.args([
         "list",
         "--manifest-file",
         manifest_path.to_str().unwrap(),
@@ -144,7 +144,7 @@ fn test_list_command_with_toml_format() {
     .unwrap();
 
     let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
-    cmd.args(&[
+    cmd.args([
         "list",
         "--manifest-file",
         manifest_path.to_str().unwrap(),
@@ -165,7 +165,7 @@ fn test_cached_command_with_missing_cache() {
     assert!(!non_existent_cache.exists());
 
     let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
-    cmd.args(&["cached", "--cache", non_existent_cache.to_str().unwrap()]);
+    cmd.args(["cached", "--cache", non_existent_cache.to_str().unwrap()]);
     // Should fail when the cache directory doesn't exist
     cmd.assert()
         .failure()
@@ -222,7 +222,7 @@ fn test_environment_variable_detection_out_dir() {
 
     let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
     cmd.env("OUT_DIR", &out_dir);
-    cmd.args(&["fetch", "--manifest-file", manifest_path.to_str().unwrap()]);
+    cmd.args(["fetch", "--manifest-file", manifest_path.to_str().unwrap()]);
     // Should succeed as OUT_DIR is provided via environment
     cmd.assert().success();
 }
