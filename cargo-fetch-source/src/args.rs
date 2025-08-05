@@ -211,7 +211,7 @@ impl TryFrom<Command> for ValidatedCommand {
                         .num_threads(threads as usize)
                         .build_global()
                         .map_err(|e| {
-                            AppError::ArgValidation(format!("Failed to set thread count: {e}"))
+                            AppError::arg_validation(format!("Failed to set thread count: {e}"))
                         })?;
                 }
 
