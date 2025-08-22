@@ -75,6 +75,13 @@ pub struct Artefact {
     path: std::path::PathBuf,
 }
 
+impl Artefact {
+    /// Get the path to an artefact
+    pub fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+}
+
 impl AsRef<std::path::Path> for Artefact {
     fn as_ref(&self) -> &std::path::Path {
         &self.path
