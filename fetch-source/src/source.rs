@@ -1,4 +1,4 @@
-//! Core types for intereacting with sources declared in `Cargo.toml`.
+//! Core types for interacting with sources declared in `Cargo.toml`.
 
 use super::error::FetchError;
 use super::git::Git;
