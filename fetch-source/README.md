@@ -1,6 +1,6 @@
 # `fetch-source`
 
-Declare external source dependencies in `Cargo.toml` and fetch them programatically.
+Declare external source dependencies in `Cargo.toml` and fetch them programmatically.
 
 This crate allows you to define external sources (Git repositories, tar archives) in your
 `Cargo.toml` under `[package.metadata.fetch-source]` and fetch them programmatically.
