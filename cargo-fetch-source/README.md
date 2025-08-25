@@ -4,7 +4,7 @@ Fetch and cache external source trees specified in Cargo.toml
 
 ## Installation
 
-From crates.io (ecommended)
+From crates.io (recommended)
 
 ```bash
 cargo install cargo-fetch-source
