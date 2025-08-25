@@ -105,6 +105,22 @@ pub struct Cache {
 }
 
 impl Cache {
+    /// Normalise to the path of a cache file. The cache dir is required to be the absolute path to
+    /// the cache directory. We rely on `canonicalize` to error when the path doesn't exist.
+    ///
+    /// Returns an IO error if the directory doesn't exist
+    #[inline]
+    fn normalise_cache_file<P>(cache_dir: P) -> std::io::Result<std::path::PathBuf>
+    where
+        P: AsRef<Path>,
+    {
+        Ok(cache_dir
+            .as_ref()
+            .to_path_buf()
+            .canonicalize()?
+            .join(CACHE_FILE_NAME))
+    }
+
     /// Create a new cache at the specified file path.
     pub fn create_at(cache_file: PathBuf) -> Self {
         Self {
@@ -113,23 +129,53 @@ impl Cache {
         }
     }
 
-    /// Loads the cache from a JSON file in the given directory, creating a new cache if the file
-    /// does not exist. Requires that `cache_dir` exists.
+    /// Read the cache in the given directory.
     ///
-    /// Returns an error if `cache_dir` doesn't exist, or if a deserialisation error occurs when
-    /// reading the cache file.
-    pub fn load<P>(cache_dir: P) -> Result<Self, crate::Error>
+    /// Error if the directory or cache file do not exist, of if a deserialisation error occurs
+    /// when reading the cache file
+    pub fn read<P>(cache_dir: P) -> Result<Self, crate::Error>
     where
         P: AsRef<Path>,
     {
-        // The cache dir is required to be the absolute path to the cache directory
-        let cache_dir = cache_dir.as_ref().canonicalize()?;
-        let cache_file = cache_dir.join(CACHE_FILE_NAME);
-        if !cache_file.is_file() {
-            Ok(Self::create_at(cache_file))
+        let cache_file = Self::normalise_cache_file(cache_dir)?;
+        let contents = std::fs::read_to_string(&cache_file)?;
+        let items: CacheItems = serde_json::from_str(&contents)?;
+        Ok(Self { items, cache_file })
+    }
+
+    /// Create a new cache in the given directory.
+    ///
+    /// Error if the directory doesn't exist, or if there is already a cache file in this directory.
+    pub fn new<P>(cache_dir: P) -> Result<Self, crate::Error>
+    where
+        P: AsRef<Path>,
+    {
+        let cache_file = Self::normalise_cache_file(&cache_dir)?;
+        if cache_file.is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "Cache file already exists",
+            )
+            .into());
+        }
+        Ok(Self::create_at(cache_file))
+    }
+
+    /// Loads the cache from a JSON file in the given directory, creating a new cache if the file
+    /// does not exist. Requires that `cache_dir` exists. Note that this function doesn't
+    /// actually create the cache file - this happens when the cache is saved.
+    ///
+    /// Returns an error if `cache_dir` doesn't exist, or if a deserialisation error occurs when
+    /// reading the cache file.
+    pub fn load_or_create<P>(cache_dir: P) -> Result<Self, crate::Error>
+    where
+        P: AsRef<Path>,
+    {
+        let cache_file = Self::normalise_cache_file(&cache_dir)?;
+        if cache_file.is_file() {
+            Self::read(cache_dir)
         } else {
-            let items: CacheItems = serde_json::from_str(&std::fs::read_to_string(&cache_file)?)?;
-            Ok(Self { items, cache_file })
+            Ok(Self::create_at(cache_file))
         }
     }
 
@@ -167,7 +213,7 @@ impl Cache {
     }
 
     /// Check whether the cache file exists in the given directory.
-    pub fn exists<P>(cache_dir: P) -> bool
+    pub fn cache_file_exists<P>(cache_dir: P) -> bool
     where
         P: AsRef<Path>,
     {
@@ -214,6 +260,7 @@ impl<'a> IntoIterator for &'a Cache {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     // Helper macro for creating test caches
     macro_rules! mock_cache_at {
@@ -276,6 +323,55 @@ mod tests {
     }
 
     #[test]
+    fn cache_read_on_existing_dir_missing_file_fails() {
+        let temp_dir = tempdir().unwrap();
+        let cache_file = Cache::normalise_cache_file(&temp_dir).unwrap();
+        let result = Cache::read(&temp_dir);
+        assert!(!cache_file.exists(), "File shouldn't exist before test");
+        assert!(result.is_err(), "Read should fail when file doesn't exist");
+        assert!(
+            !cache_file.exists(),
+            "File shouldn't be created by `read` operation"
+        );
+    }
+
+    #[test]
+    fn cache_load_on_existing_dir_missing_file_gives_empty_cache() {
+        let temp_dir = tempdir().unwrap();
+        let cache_file = Cache::normalise_cache_file(&temp_dir).unwrap();
+        assert!(!cache_file.exists(), "File shouldn't exist before test");
+        let result = Cache::load_or_create(&temp_dir);
+        assert!(
+            result.is_ok(),
+            "load_or_create should succeed when file doesn't exist"
+        );
+        assert!(
+            !cache_file.exists(),
+            "File shouldn't exist after test - only created when saved"
+        );
+        assert!(result.unwrap().items().is_empty());
+    }
+
+    #[test]
+    fn cache_load_on_missing_dir_fails() {
+        let temp_dir = std::env::temp_dir().join("1729288131-doesnt-exist-6168255555");
+        assert!(
+            !temp_dir.exists(),
+            "The temporary directory shouldn't exist before test"
+        );
+        let result = Cache::load_or_create(&temp_dir);
+        assert!(
+            !temp_dir.exists(),
+            "The temporary directory shouldn't exist after test"
+        );
+        assert!(
+            result.is_err(),
+            "load_or_create should fail when directory doesn't exist"
+        );
+        assert_eq!(result.unwrap_err().kind(), &crate::ErrorKind::Io);
+    }
+
+    #[test]
     fn cache_load_save_roundtrip() {
         let temp_dir = std::env::temp_dir().join("cache_test_migration");
         std::fs::create_dir_all(&temp_dir).unwrap();
@@ -293,7 +389,7 @@ mod tests {
         cache.save().unwrap();
 
         // Load
-        let loaded_cache = Cache::load(&temp_dir).unwrap();
+        let loaded_cache = Cache::load_or_create(&temp_dir).unwrap();
         assert_eq!(loaded_cache.items().len(), 1);
 
         let source: Source =

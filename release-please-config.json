@@ -1,0 +1,11 @@
+{
+    "release-type": "rust",
+    "packages": {
+        "fetch-source": {
+            "component": "fetch-source"
+        },
+        "cargo-fetch-source": {
+            "component": "cargo-fetch-source"
+        }
+    }
+}

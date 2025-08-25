@@ -2,6 +2,8 @@
 name = "fetch-source"
 version = "0.1.0"
 edition = "2024"
+authors = ["Adam Tuft"]
+license = "MIT OR Apache-2.0"
 
 [lib]
 name = "fetch_source"
@@ -19,6 +21,9 @@ sha256 = "1.6.0"
 directories = "6.0.0"
 serde_json = "1.0.141"
 derive_more = { version = "2.0.1", features = ["deref"] }
+
+[dev-dependencies]
+tempfile = "3.0"
 
 [features]
 tar = ["dep:tar", "reqwest"]

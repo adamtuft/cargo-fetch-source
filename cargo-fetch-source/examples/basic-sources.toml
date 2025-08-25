@@ -1,0 +1,3 @@
+[package.metadata.fetch-source]
+"syn::latest" = { git = "https://github.com/dtolnay/syn.git" }
+"syn::1.0.0" = { tar = "https://github.com/dtolnay/syn/archive/refs/tags/1.0.0.tar.gz" }

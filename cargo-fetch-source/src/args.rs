@@ -140,7 +140,7 @@ impl ValidatedArgs {
                         break Ok(manifest);
                     }
                     if !current_dir.pop() {
-                        return Err(AppError::ArgValidation(
+                        return Err(AppError::arg_validation(
                             "could not find 'Cargo.toml' in the current directory or any parent directory".to_string(),
                         ));
                     }
@@ -156,7 +156,7 @@ impl ValidatedArgs {
                 Some(dir) => Ok(PathBuf::from(dir)),
                 None => {
                     let project_dirs = directories::ProjectDirs::from("", "", "cargo-fetch-source")
-                        .ok_or(AppError::ArgValidation(
+                        .ok_or(AppError::arg_validation(
                             "could not determine cache directory".to_string(),
                         ))?;
                     Ok(project_dirs.cache_dir().to_path_buf())
@@ -171,8 +171,8 @@ impl ValidatedArgs {
         if !cache_dir.exists() {
             std::fs::create_dir_all(&cache_dir)?;
         }
-        fetch_source::Cache::load(&cache_dir).map_err(|e| {
-            AppError::ArgValidation(format!(
+        fetch_source::Cache::load_or_create(&cache_dir).map_err(|e| {
+            AppError::arg_validation(format!(
                 "failed to load cache in {}: {}",
                 cache_dir.display(),
                 e
@@ -197,7 +197,7 @@ impl TryFrom<Command> for ValidatedCommand {
 
                 // Validate that the output directory exists
                 if !out_dir.exists() {
-                    return Err(AppError::ArgValidation(format!(
+                    return Err(AppError::arg_validation(format!(
                         "output directory does not exist: {}",
                         out_dir.display()
                     )));
@@ -207,8 +207,12 @@ impl TryFrom<Command> for ValidatedCommand {
                 let cache = ValidatedArgs::load_cache_from(cache_dir)?;
 
                 if let Some(threads) = threads {
-                    // SAFETY: only called in a serial region before any other threads exist.
-                    unsafe { std::env::set_var("RAYON_NUM_THREADS", format!("{threads}")) };
+                    rayon::ThreadPoolBuilder::new()
+                        .num_threads(threads as usize)
+                        .build_global()
+                        .map_err(|e| {
+                            AppError::arg_validation(format!("Failed to set thread count: {e}"))
+                        })?;
                 }
 
                 Ok(ValidatedCommand::Fetch {
@@ -229,7 +233,14 @@ impl TryFrom<Command> for ValidatedCommand {
                 cache_dir: cache_dir_arg,
             } => {
                 let cache_dir = ValidatedArgs::detect_cache_dir(cache_dir_arg)?;
-                let cache = ValidatedArgs::load_cache_from(cache_dir)?;
+                // For the cached command, don't create the cache directory if it doesn't exist
+                let cache = fetch_source::Cache::read(&cache_dir).map_err(|e| {
+                    AppError::arg_validation(format!(
+                        "failed to load cache in {}: {}",
+                        cache_dir.display(),
+                        e
+                    ))
+                })?;
                 Ok(ValidatedCommand::Cached { format, cache })
             }
         }
