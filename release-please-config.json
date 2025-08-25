@@ -1,5 +1,9 @@
 {
+    "bootstrap-sha": "8575cac43d2b11d07f75e76c49dc5ab0b6921149",
     "release-type": "rust",
+    "plugins": [
+        "cargo-workspace"
+    ],
     "packages": {
         "fetch-source": {
             "component": "fetch-source"
