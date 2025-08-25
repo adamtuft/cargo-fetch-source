@@ -177,11 +177,11 @@ fn list(sources: fetch_source::SourcesTable, format: Option<OutputFormat>) -> Re
                     fetch_source::Source::Git(git) => {
                         println!("   upstream: {}", git.upstream());
                         if let Some(branch) = git.branch_name() {
-                            println!("  branch/tag:  {branch}");
+                            println!("   branch/tag:  {branch}");
                         } else if let Some(commit) = git.commit_sha() {
-                            println!("  commit:  {commit}");
+                            println!("   commit:  {commit}");
                         }
-                        println!("  recursive: {}", git.is_recursive());
+                        println!("   recursive: {}", git.is_recursive());
                     }
                 }
             }
