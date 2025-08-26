@@ -25,7 +25,7 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
       - name: Log version(s)
-        if: ${{ steps.release.outputs.releases_created == 'true' }}
-        run: \
+        run: |
+          echo "release created: ${{ steps.release.outputs.releases_created }}" \
           echo "created fetch-source ${{ steps.release.outputs.fetch-source--version }}" \
           echo "created cargo-fetch-source ${{ steps.release.outputs.cargo-fetch-source--version }}"
