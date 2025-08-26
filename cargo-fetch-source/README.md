@@ -42,7 +42,7 @@ syn::1.0.0:
 Fetch declared sources:
 
 ```bash
-cargo fetch-source fetch
+$ cargo fetch-source fetch
 [1/2] ✅  syn::latest -> /home/me/.cache/cargo-fetch-source/e919341bd778304b42215bfd5c9015df7113cf5addb1ad8b7bcd057887e35de3
 [2/2] ✅  syn::1.0.0 -> /home/me/.cache/cargo-fetch-source/6366d155d905264e8697cbe862fe2d8519c1d958af0e4d784b79ca89a540678b
 ```
