@@ -31,3 +31,6 @@ tempfile = "3.0"
 tar = ["dep:tar", "reqwest"]
 reqwest = ["dep:reqwest"]
 rayon = ["dep:rayon"]
+
+[package.metadata.docs.rs]
+all-features = true
