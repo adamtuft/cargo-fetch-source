@@ -1,13 +1,13 @@
 name: Lint and Check
 
-# Basic code quality checks to be run on any push to dev or feature/** branches, and
-# on version tags. Also run for PRs against main & dev.
+# Basic code quality checks to be run on any push to trunk or feature/** branches, and
+# on version tags. Also run for PRs against trunk.
 on:
   push:
-    branches: [ dev, 'feature/**' ]
+    branches: [ trunk, 'feature/**' ]
     tags: [ 'v*' ]
   pull_request:
-    branches: [ main, dev ]
+    branches: [ trunk ]
 
 permissions:
   contents: read
