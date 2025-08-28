@@ -1,11 +1,11 @@
 name: Test and Documentation
 
-# This workflow runs tests against PRs against main and dev. Don't run on feature/**
-# branches, as these checks will be run when the branch is ready to review for PR
+# This workflow tests PRs to trunk. Don't run on feature/** branches, as these checks will be run
+# when the branch is ready to review for PR
 on:
   pull_request:
     types: [opened, synchronize, review_requested]
-    branches: [ main, dev ]
+    branches: [ trunk ]
 
 jobs:
   unit-tests:
