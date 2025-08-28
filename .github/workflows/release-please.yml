@@ -23,7 +23,7 @@ jobs:
       name: publish
     outputs:
       releases_created: ${{ steps.release.outputs.releases_created }}
-      should_publish: ${{ steps.release.outputs.releases_created && vars.CARGO_SHOULD_PUBLISH == 'true' }}
+      should_publish: ${{ steps.release.outputs.releases_created == 'true' && vars.CARGO_SHOULD_PUBLISH == 'true' }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
@@ -34,7 +34,7 @@ jobs:
       - name: Log whether releases created
         run: echo "releases_created=${{ steps.release.outputs.releases_created }}"
       - name: Log version(s)
-        if: ${{ steps.release.outputs.releases_created }}
+        if: ${{ steps.release.outputs.releases_created == 'true' }}
         run: |
           printf "created fetch-source:\n"
           printf "    [%s]\n" ${{ steps.release.outputs.fetch-source--version }}
@@ -48,7 +48,7 @@ jobs:
       name: publish
     env:
       CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-    if: ${{ needs.release-please.outputs.should_publish }}
+    if: ${{ needs.release-please.outputs.should_publish == 'true' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -62,7 +62,7 @@ jobs:
   no-cargo-publish:
     runs-on: ubuntu-latest
     needs: release-please
-    if: ${{ !needs.release-please.outputs.should_publish }}
+    if: ${{ needs.release-please.outputs.should_publish != 'true' }}
     steps:
       - name: Log that nothing was published
         run: echo "Skipping cargo-publish because no releases created or CARGO_SHOULD_PUBLISH is not 'true'"
