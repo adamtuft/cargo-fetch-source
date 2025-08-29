@@ -1,0 +1,39 @@
+name: Measure code coverage
+
+# Generate code coverage reports and upload to codecov.io when a PR is ready for review. Also
+# generate manually (not on every push to trunk to prevent lots of reports being generated)
+
+on:
+  pull_request:
+    types: [ready_for_review, review_requested]
+    branches: [ trunk ]
+  workflow_dispatch:
+
+env:
+  RUST_BACKTRACE: 1
+
+jobs:
+  codecov:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools
+      - name: Run tests
+        run: cargo test --all --no-fail-fast -- --test-threads=1
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
+      - name: Generate coverage report
+        run: cargo llvm-cov --all-features --no-fail-fast --lcov --output-path lcov.info
+      - name: Upload to codecov.io
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          fail_ci_if_error: true
+          env_vars: GITHUB_REF
+          name: ${{ github.event_name }}-${{ github.ref_name }}
+          verbose: true
