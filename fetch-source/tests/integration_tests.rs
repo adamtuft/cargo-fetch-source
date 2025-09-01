@@ -560,7 +560,6 @@ mod test_fetch_all_parallel {
 mod test_cache_all_par {
 
     use fetch_source::*;
-    use std::collections::HashMap;
     use toml::toml;
 
     #[test]
@@ -573,7 +572,7 @@ mod test_cache_all_par {
         let sources = try_parse_toml(cargo_toml).unwrap();
         let out_dir = tempfile::tempdir().unwrap();
         let mut cache = Cache::new(out_dir).unwrap();
-        let mut errors = cache_all_par(&mut cache, sources);
+        let errors = cache_all_par(&mut cache, sources);
         assert_eq!(errors.len(), 0);
         assert_eq!(cache.items().len(), 2);
         let syn_git =
