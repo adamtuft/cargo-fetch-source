@@ -408,3 +408,182 @@ fn test_source_caching() {
         std::fs::remove_dir_all(&cache_dir).ok();
     }
 }
+
+mod test_load_sources_table {
+    use fetch_source::{ErrorKind, load_sources};
+
+    #[test]
+    fn from_dir() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cargo_toml = temp_dir.path().join("Cargo.toml");
+        std::fs::write(
+            &cargo_toml,
+            r#"
+            [package.metadata.fetch-source]
+            "syn::latest" = { git = "https://github.com/dtolnay/syn.git" }
+            "syn::1.0.0" = { tar = "https://github.com/dtolnay/syn/archive/refs/tags/1.0.0.tar.gz" }
+        "#,
+        )
+        .unwrap();
+
+        let sources = load_sources(&temp_dir);
+        assert!(sources.is_ok());
+        let sources = sources.unwrap();
+
+        assert_eq!(sources.len(), 2);
+        assert!(sources.contains_key("syn::latest"));
+        assert!(sources.contains_key("syn::1.0.0"));
+    }
+
+    #[test]
+    fn from_empty_dir() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let sources = load_sources(&temp_dir);
+        assert!(sources.is_err());
+        let error = sources.unwrap_err();
+        assert_eq!(error.kind(), &ErrorKind::Io);
+    }
+
+    #[test]
+    fn no_sources_table() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cargo_toml = temp_dir.path().join("Cargo.toml");
+        std::fs::write(
+            &cargo_toml,
+            r#"
+            [package]
+            "name" = "test"
+        "#,
+        )
+        .unwrap();
+
+        let sources = load_sources(&temp_dir);
+        assert!(sources.is_err());
+
+        let error = sources.unwrap_err();
+        assert_eq!(error.kind(), &ErrorKind::Parse);
+    }
+
+    #[test]
+    fn bad_sources_table() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cargo_toml = temp_dir.path().join("Cargo.toml");
+        std::fs::write(
+            &cargo_toml,
+            r#"
+            [package.metadata.fetch-source]
+            "syn::latest" = 123
+        "#,
+        )
+        .unwrap();
+
+        let sources = load_sources(&temp_dir);
+        assert!(sources.is_err());
+
+        let error = sources.unwrap_err();
+        assert_eq!(error.kind(), &ErrorKind::Parse);
+    }
+}
+
+mod test_fetch_all_serial {
+
+    use fetch_source::try_parse_toml;
+    use std::collections::HashMap;
+
+    #[test]
+    fn fetch_one_good() {
+        let cargo_toml = r#"
+[package.metadata.fetch-source]
+syn = { git = "https://github.com/dtolnay/syn.git" }
+        "#;
+        let sources = try_parse_toml(cargo_toml).unwrap();
+        let out_dir = tempfile::tempdir().unwrap();
+        let mut results: HashMap<_, _> = fetch_source::fetch_all(sources, &out_dir)
+            .into_iter()
+            .collect();
+        assert_eq!(results.len(), 1);
+        assert!(results.contains_key("syn"));
+        assert!(results.get("syn").unwrap().is_ok());
+        let artefact = results.remove("syn").unwrap().unwrap();
+        assert_eq!(artefact.path(), out_dir.path().join("syn"));
+    }
+
+    #[test]
+    fn fetch_one_bad() {
+        let cargo_toml = r#"
+[package.metadata.fetch-source]
+syn = { git = "https://www.example.com" }
+        "#;
+        let sources = try_parse_toml(cargo_toml).unwrap();
+        let out_dir = tempfile::tempdir().unwrap();
+        let mut results: HashMap<_, _> = fetch_source::fetch_all(sources, &out_dir)
+            .into_iter()
+            .collect();
+        assert_eq!(results.len(), 1);
+        assert!(results.contains_key("syn"));
+        assert!(results.get("syn").unwrap().is_err());
+        let error = results.remove("syn").unwrap().unwrap_err();
+        dbg!(&error);
+    }
+}
+
+#[cfg(feature = "rayon")]
+mod test_fetch_all_parallel {
+
+    use fetch_source::try_parse_toml;
+    use std::collections::HashMap;
+
+    #[test]
+    fn fetch_two_good() {
+        let cargo_toml = r#"
+[package.metadata.fetch-source]
+"syn-git" = { git = "https://github.com/dtolnay/syn.git" }
+"syn-tar" = { tar = "https://github.com/dtolnay/syn/archive/refs/tags/1.0.109.tar.gz" }
+        "#;
+        let sources = try_parse_toml(cargo_toml).unwrap();
+        let out_dir = tempfile::tempdir().unwrap();
+        let mut results: HashMap<_, _> = fetch_source::fetch_all_par(sources, &out_dir)
+            .into_iter()
+            .collect();
+        dbg!(&results);
+        assert_eq!(results.len(), 2);
+        assert!(results.contains_key("syn-git"));
+        assert!(results.contains_key("syn-tar"));
+        let syn_git = results.remove("syn-git").unwrap().unwrap();
+        assert_eq!(syn_git.path(), out_dir.path().join("syn-git"));
+        let syn_tar = results.remove("syn-tar").unwrap().unwrap();
+        assert_eq!(syn_tar.path(), out_dir.path().join("syn-tar"));
+    }
+}
+
+#[cfg(feature = "rayon")]
+mod test_cache_all_par {
+
+    use fetch_source::*;
+    use std::collections::HashMap;
+    use toml::toml;
+
+    #[test]
+    fn cache_two_good() {
+        let cargo_toml = r#"
+[package.metadata.fetch-source]
+"syn-git" = { git = "https://github.com/dtolnay/syn.git" }
+"syn-tar" = { tar = "https://github.com/dtolnay/syn/archive/refs/tags/1.0.109.tar.gz" }
+        "#;
+        let sources = try_parse_toml(cargo_toml).unwrap();
+        let out_dir = tempfile::tempdir().unwrap();
+        let mut cache = Cache::new(out_dir).unwrap();
+        let mut errors = cache_all_par(&mut cache, sources);
+        assert_eq!(errors.len(), 0);
+        assert_eq!(cache.items().len(), 2);
+        let syn_git =
+            Source::parse("syn-git", toml!(git = "https://github.com/dtolnay/syn.git")).unwrap();
+        assert!(cache.items().contains(&syn_git));
+        let syn_tar = Source::parse(
+            "syn-tar",
+            toml!(tar = "https://github.com/dtolnay/syn/archive/refs/tags/1.0.109.tar.gz"),
+        )
+        .unwrap();
+        assert!(cache.items().contains(&syn_tar));
+    }
+}

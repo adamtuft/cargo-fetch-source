@@ -122,7 +122,7 @@ impl Cache {
     }
 
     /// Create a new cache at the specified file path.
-    pub fn create_at(cache_file: PathBuf) -> Self {
+    fn create_at(cache_file: PathBuf) -> Self {
         Self {
             items: CacheItems::new(),
             cache_file,

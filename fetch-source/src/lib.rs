@@ -191,10 +191,12 @@ pub fn fetch_all<P: AsRef<std::path::Path>>(
 ) -> Vec<(SourceName, FetchResult<Artefact>)> {
     sources
         .into_iter()
-        .map(|(name, source)| match source.fetch(&out_dir) {
-            Ok(artefact) => (name, Ok(artefact)),
-            Err(err) => (name, Err(err)),
-        })
+        .map(
+            |(name, source)| match source.fetch(out_dir.as_ref().join(&name)) {
+                Ok(artefact) => (name, Ok(artefact)),
+                Err(err) => (name, Err(err)),
+            },
+        )
         .collect()
 }
 
@@ -210,16 +212,18 @@ mod par {
     ) -> Vec<(SourceName, FetchResult<Artefact>)> {
         sources
             .into_par_iter()
-            .map(|(name, source)| match source.fetch(&out_dir) {
-                Ok(artefact) => (name, Ok(artefact)),
-                Err(err) => (name, Err(err)),
-            })
+            .map(
+                |(name, source)| match source.fetch(out_dir.as_ref().join(&name)) {
+                    Ok(artefact) => (name, Ok(artefact)),
+                    Err(err) => (name, Err(err)),
+                },
+            )
             .collect::<Vec<_>>()
     }
 
     /// Convenience function to update the given cache with all missing sources in parallel.
     /// Returns any errors that occurred when fetching the missing sources.
-    pub fn cache_all_par<P: AsRef<std::path::Path> + Sync>(
+    pub fn cache_all_par(
         cache: &mut Cache,
         sources: SourcesTable,
     ) -> Vec<(SourceName, FetchError)> {
