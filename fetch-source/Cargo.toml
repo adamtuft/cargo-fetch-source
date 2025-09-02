@@ -32,5 +32,8 @@ tar = ["dep:tar", "reqwest"]
 reqwest = ["dep:reqwest"]
 rayon = ["dep:rayon"]
 
+[build-dependencies]
+vergen-git2 = { version = "1.0.7", features = ["build"] }
+
 [package.metadata.docs.rs]
 all-features = true

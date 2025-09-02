@@ -2,7 +2,8 @@
 
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::FromArgMatches;
+use clap::{CommandFactory, Parser};
 
 use crate::error::AppError;
 
@@ -36,7 +37,7 @@ const APP_STYLING: clap::builder::styling::Styles = clap::builder::styling::Styl
 #[derive(Debug, Parser)]
 #[command(name = "cargo-fetch-source")]
 #[command(about = "Fetch external source trees specified in Cargo.toml")]
-#[command(version, long_about = None)]
+#[command(long_about = None)]
 #[command(styles = APP_STYLING)]
 #[command(term_width = 80)]
 struct Args {
@@ -247,13 +248,27 @@ impl TryFrom<Command> for ValidatedCommand {
     }
 }
 
+static VERSION: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " (rev: ",
+    env!("VERGEN_GIT_SHA"),
+    ")"
+);
+
 pub fn parse() -> Result<ValidatedArgs, AppError> {
     let raw_args = std::env::args().collect::<Vec<_>>();
     // If run via `cargo fetch-source` skip the command argument which cargo passes to the binary.
-    let args = if raw_args.len() > 1 && raw_args[1] == "fetch-source" {
-        Args::parse_from(&raw_args[1..])
+    let raw_args = if raw_args.len() > 1 && raw_args[1] == "fetch-source" {
+        &raw_args[1..]
     } else {
-        Args::parse_from(&raw_args)
+        &raw_args
+    };
+    let matches = Args::command().version(VERSION).get_matches_from(raw_args);
+    let args = match Args::from_arg_matches(&matches) {
+        Ok(args) => args,
+        Err(err) => {
+            err.format(&mut Args::command()).exit();
+        }
     };
     Ok(ValidatedArgs {
         command: ValidatedCommand::try_from(args.command)?,

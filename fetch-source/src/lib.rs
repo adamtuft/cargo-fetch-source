@@ -165,6 +165,9 @@ mod source;
 #[cfg(feature = "tar")]
 mod tar;
 
+/// The build-time git commit hash
+pub static GIT_SHA: &str = env!("VERGEN_GIT_SHA");
+
 pub use cache::{Cache, CacheDir, CacheItems, CacheRoot, RelCacheDir};
 pub use error::{Error, ErrorKind, FetchError};
 pub use git::Git;
