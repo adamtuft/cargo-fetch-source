@@ -46,6 +46,9 @@ fn run() -> Result<(), error::AppError> {
             let sources = sources(&manifest_file)?;
             let num_sources = sources.len();
             let (artefacts, errors) = fetch_and_cache_sources(sources, cache_items, &cache_dir);
+            for (name, artefact) in &artefacts {
+                println!("cached '{name} at '{}'", artefact.display());
+            }
             cache.save().map_err(|err| {
                 AppError::cache_save_failed(cache.cache_file().to_path_buf(), err)
             })?;
