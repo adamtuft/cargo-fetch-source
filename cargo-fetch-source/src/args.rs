@@ -47,7 +47,7 @@ struct Args {
 
 #[derive(Debug, clap::Subcommand)]
 enum Command {
-    /// Fetch and cache the sources specified in the manifest.
+    /// Fetch and cache the sources specified in the manifest
     Fetch {
         /// Path to the Cargo.toml file. If not given, search for the file in the current and parent
         /// directories.
@@ -58,7 +58,8 @@ enum Command {
         #[arg(long, short = 'o', value_name = "PATH")]
         out_dir: Option<PathBuf>,
 
-        /// Cache directory to use.
+        /// Cache directory to use. If omitted, check the `CARGO_FETCH_SOURCE_CACHE` environment
+        /// variable and then `~/.cache/cargo-fetch-source`
         #[arg(long = "cache", short = 'c', value_name = "PATH")]
         cache_dir: Option<PathBuf>,
 
@@ -72,17 +73,19 @@ enum Command {
         /// directories.
         #[arg(long, short = 'm', value_name = "PATH", global = true)]
         manifest_file: Option<PathBuf>,
+
         /// Output format
         #[arg(long, short = 'f', value_enum, value_name = "FORMAT")]
         format: Option<OutputFormat>,
     },
-    /// List the cached sources. Defaults to `CARGO_FETCH_SOURCE_CACHE` environment variable
-    /// then `~/.cache/cargo-fetch-source`
+    /// List the cached sources
     Cached {
         /// Output format
         #[arg(long, short = 'f', value_enum, value_name = "FORMAT")]
         format: Option<OutputFormat>,
-        /// Cache directory to list.
+
+        /// Cache directory to use. If omitted, check the `CARGO_FETCH_SOURCE_CACHE` environment
+        /// variable and then `~/.cache/cargo-fetch-source`
         #[arg(long = "cache", short = 'c', value_name = "PATH")]
         cache_dir: Option<PathBuf>,
     },
@@ -146,6 +149,8 @@ impl ValidatedArgs {
         }
     }
 
+    /// Detect the cache directory, falling back to `CARGO_FETCH_SOURCE_CACHE` then
+    /// ~/.cache/cargo-fetch-source
     fn detect_cache_dir(arg: Option<PathBuf>) -> Result<PathBuf, AppError> {
         match arg {
             Some(dir) => Ok(dir),

@@ -69,10 +69,7 @@ fn run() -> Result<(), error::AppError> {
             format,
             manifest_file,
         } => list(sources(&manifest_file)?, format),
-        args::ValidatedCommand::Cached {
-            format: _,
-            ref cache,
-        } => cached(cache),
+        args::ValidatedCommand::Cached { format, ref cache } => cached(cache, format),
     }
 }
 
@@ -198,14 +195,27 @@ fn list(sources: fetch_source::SourcesTable, format: Option<OutputFormat>) -> Re
     Ok(())
 }
 
-fn cached(cache: &fetch_source::Cache) -> Result<(), AppError> {
-    println!(
-        "// Contents of cache file: {}",
-        cache.cache_file().display()
-    );
-    println!(
-        "{}",
-        serde_json::to_string_pretty(cache.items()).expect("Failed to serialize cache")
-    );
+/// List artefacts in the given cache, formatted according to the specified output format.
+fn cached(cache: &fetch_source::Cache, format: Option<args::OutputFormat>) -> Result<(), AppError> {
+    let formatted = match format {
+        Some(OutputFormat::Json) => {
+            serde_json::to_string_pretty(cache.items()).expect("Failed to serialize cache")
+        }
+        Some(OutputFormat::Toml) => {
+            toml::to_string_pretty(cache.items()).expect("Failed to serialize cache")
+        }
+        None => {
+            let mut formatted = String::new();
+            for artefact in cache.items().values() {
+                formatted.push_str(&format!(
+                    "upstream: {}\npath:     {}\n\n",
+                    artefact.source(),
+                    artefact.path().display()
+                ));
+            }
+            formatted
+        }
+    };
+    println!("{formatted}");
     Ok(())
 }

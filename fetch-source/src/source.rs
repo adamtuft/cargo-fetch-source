@@ -80,6 +80,10 @@ impl Artefact {
     pub fn path(&self) -> &std::path::Path {
         &self.path
     }
+    /// The source of an artefact
+    pub fn source(&self) -> &Source {
+        &self.source
+    }
 }
 
 impl AsRef<std::path::Path> for Artefact {
@@ -180,8 +184,8 @@ impl std::fmt::Display for Source {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             #[cfg(feature = "tar")]
-            Source::Tar(tar) => write!(f, "tar source: {tar:?}"),
-            Source::Git(git) => write!(f, "git source: {git:?}"),
+            Source::Tar(tar) => write!(f, "{tar}"),
+            Source::Git(git) => write!(f, "{git}"),
         }
     }
 }
