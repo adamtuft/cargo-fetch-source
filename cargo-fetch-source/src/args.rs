@@ -47,15 +47,14 @@ struct Args {
 
 #[derive(Debug, clap::Subcommand)]
 enum Command {
-    /// Fetch the sources specified in the manifest
+    /// Fetch and cache the sources specified in the manifest.
     Fetch {
         /// Path to the Cargo.toml file. If not given, search for the file in the current and parent
         /// directories.
         #[arg(long, short = 'm', value_name = "PATH", global = true)]
         manifest_file: Option<PathBuf>,
 
-        /// Output directory for fetched sources. If absent, try the `OUT_DIR` environment variable,
-        /// then fall back to the current working directory. The given directory must exist.
+        /// Output directory where the fetched sources should be copied to once cached.
         #[arg(long, short = 'o', value_name = "PATH")]
         out_dir: Option<PathBuf>,
 
@@ -106,7 +105,7 @@ pub struct ValidatedArgs {
 pub enum ValidatedCommand {
     Fetch {
         manifest_file: PathBuf,
-        out_dir: PathBuf,
+        out_dir: Option<PathBuf>,
         cache: fetch_source::Cache,
     },
     List {
@@ -123,10 +122,7 @@ impl ValidatedArgs {
     fn detect_out_dir(arg: Option<PathBuf>) -> Result<PathBuf, AppError> {
         Ok(match arg {
             Some(path) => path,
-            None => match std::env::var("OUT_DIR") {
-                Ok(s) => std::path::PathBuf::from(s),
-                Err(_) => std::env::current_dir()?,
-            },
+            None => std::env::current_dir()?,
         })
     }
 
@@ -193,16 +189,20 @@ impl TryFrom<Command> for ValidatedCommand {
                 cache_dir,
                 threads,
             } => {
-                // If the output directory is not provided, try to use `OUT_DIR` and fall back to the current directory.
-                let out_dir = ValidatedArgs::detect_out_dir(out_dir)?;
-
-                // Validate that the output directory exists
-                if !out_dir.exists() {
+                // If given, validate that the output directory exists
+                if let Some(ref dir) = out_dir
+                    && !dir.exists()
+                {
                     return Err(AppError::arg_validation(format!(
                         "output directory does not exist: {}",
-                        out_dir.display()
+                        dir.display()
                     )));
                 }
+
+                let out_dir = match out_dir {
+                    Some(dir) => Some(dir.canonicalize()?),
+                    None => None,
+                };
 
                 let cache_dir = ValidatedArgs::detect_cache_dir(cache_dir)?;
                 let cache = ValidatedArgs::load_cache_from(cache_dir)?;
@@ -218,7 +218,7 @@ impl TryFrom<Command> for ValidatedCommand {
 
                 Ok(ValidatedCommand::Fetch {
                     manifest_file: ValidatedArgs::detect_manifest_file(manifest_file)?,
-                    out_dir: out_dir.canonicalize()?,
+                    out_dir,
                     cache,
                 })
             }

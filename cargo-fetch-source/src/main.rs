@@ -52,7 +52,10 @@ fn run() -> Result<(), error::AppError> {
             cache.save().map_err(|err| {
                 AppError::cache_save_failed(cache.cache_file().to_path_buf(), err)
             })?;
-            copy_all_artefacts(&out_dir, artefacts)?;
+
+            if let Some(out_dir) = out_dir {
+                copy_all_artefacts(&out_dir, artefacts)?;
+            }
 
             // Report errors and return error status if any occurred
             if errors.is_empty() {
@@ -100,6 +103,7 @@ fn fetch_and_cache_sources(
     (fetched, errors)
 }
 
+/// Copy artefacts into their source's directory in `out_dir`
 fn copy_all_artefacts<P>(
     out_dir: P,
     artefacts: Vec<(String, fetch_source::CacheDir)>,
@@ -113,6 +117,7 @@ where
     Ok(())
 }
 
+/// Copy an artefact from its cache dir into the source's directory within `out_dir`
 fn copy_artefact<P, Q>(out_dir: P, name: String, artefact_path: Q) -> Result<(), AppError>
 where
     P: AsRef<std::path::Path>,
@@ -131,7 +136,7 @@ where
     Ok(())
 }
 
-// Report fetch results, including any errors and success messages.
+/// Report fetch results, including any errors and success messages.
 fn report_fetch_results(errors: Vec<fetch_source::FetchError>, num_sources: usize) {
     let num_errors = errors.len();
     let num_success = num_sources - num_errors;
