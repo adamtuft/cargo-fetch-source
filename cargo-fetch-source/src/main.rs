@@ -69,7 +69,11 @@ fn run() -> Result<(), error::AppError> {
             format,
             manifest_file,
         } => list(sources(&manifest_file)?, format),
-        args::ValidatedCommand::Cached { format, ref cache } => cached(cache, format),
+        args::ValidatedCommand::Cached {
+            format,
+            ref cache,
+            query_args,
+        } => cached(cache, format, query_args),
     }
 }
 
@@ -196,26 +200,65 @@ fn list(sources: fetch_source::SourcesTable, format: Option<OutputFormat>) -> Re
 }
 
 /// List artefacts in the given cache, formatted according to the specified output format.
-fn cached(cache: &fetch_source::Cache, format: Option<args::OutputFormat>) -> Result<(), AppError> {
-    let formatted = match format {
-        Some(OutputFormat::Json) => {
-            serde_json::to_string_pretty(cache.items()).expect("Failed to serialize cache")
-        }
-        Some(OutputFormat::Toml) => {
-            toml::to_string_pretty(cache.items()).expect("Failed to serialize cache")
-        }
-        None => {
-            let mut formatted = String::new();
-            for artefact in cache.items().values() {
-                formatted.push_str(&format!(
-                    "upstream: {}\npath:     {}\n\n",
-                    artefact.source(),
-                    artefact.path().display()
+fn cached(
+    cache: &fetch_source::Cache,
+    format: Option<args::OutputFormat>,
+    query_args: Option<args::CacheQueryArgs>,
+) -> Result<(), AppError> {
+    if let Some(query_args) = query_args {
+        let manifest_file = &query_args.manifest_file;
+        let source_name = &query_args.source;
+        let sources = sources(manifest_file)?;
+        let source = match sources.get(source_name) {
+            Some(s) => s,
+            None => {
+                return Err(AppError::no_such_source(
+                    source_name.clone(),
+                    manifest_file.to_path_buf(),
                 ));
             }
-            formatted
+        };
+        if let Some(artefact) = cache.items().get(source) {
+            match format {
+                Some(OutputFormat::Json) => {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(artefact)
+                            .expect("Failed to serialize artefact")
+                    );
+                }
+                Some(OutputFormat::Toml) => {
+                    println!(
+                        "{}",
+                        toml::to_string_pretty(artefact).expect("Failed to serialize artefact")
+                    );
+                }
+                None => {
+                    println!("{}", artefact.path().display());
+                }
+            }
         }
-    };
-    println!("{formatted}");
+    } else {
+        let formatted = match format {
+            Some(OutputFormat::Json) => {
+                serde_json::to_string_pretty(cache.items()).expect("Failed to serialize cache")
+            }
+            Some(OutputFormat::Toml) => {
+                toml::to_string_pretty(cache.items()).expect("Failed to serialize cache")
+            }
+            None => {
+                let mut formatted = String::new();
+                for artefact in cache.items().values() {
+                    formatted.push_str(&format!(
+                        "upstream: {}\npath:     {}\n\n",
+                        artefact.source(),
+                        artefact.path().display()
+                    ));
+                }
+                formatted
+            }
+        };
+        println!("{formatted}");
+    }
     Ok(())
 }

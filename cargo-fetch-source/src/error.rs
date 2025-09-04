@@ -62,6 +62,11 @@ pub enum AppErrorInner {
         name: String,
         path: std::path::PathBuf,
     },
+    #[error("no source called '{name}' in manifest {manifest:?}")]
+    NoSuchSource {
+        name: String,
+        manifest: std::path::PathBuf,
+    },
 }
 
 /// The main application-level error type. This represents all top-level application errors we'd
@@ -153,6 +158,14 @@ impl AppError {
         Self::new(
             AppErrorInner::MissingArtefactDirectory { name, path },
             AppErrorKind::MissingArtefact,
+        )
+    }
+
+    /// Create a no such source error
+    pub fn no_such_source(name: String, manifest: std::path::PathBuf) -> Self {
+        Self::new(
+            AppErrorInner::NoSuchSource { name, manifest },
+            AppErrorKind::ArgValidation,
         )
     }
 }

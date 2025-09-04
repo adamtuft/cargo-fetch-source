@@ -78,7 +78,8 @@ enum Command {
         #[arg(long, short = 'f', value_enum, value_name = "FORMAT")]
         format: Option<OutputFormat>,
     },
-    /// List the cached sources
+    /// List or query cached sources. When querying, both `--manifest-file` and `--source` are
+    /// required.
     Cached {
         /// Output format
         #[arg(long, short = 'f', value_enum, value_name = "FORMAT")]
@@ -88,6 +89,28 @@ enum Command {
         /// variable and then `~/.cache/cargo-fetch-source`
         #[arg(long = "cache", short = 'c', value_name = "PATH")]
         cache_dir: Option<PathBuf>,
+
+        /// Manifest file to use when querying the cache for a specific source. Required if
+        /// `--source` is given.
+        #[arg(
+            long,
+            short = 'm',
+            value_name = "PATH",
+            group = "query-manifest",
+            requires = "query-source"
+        )]
+        manifest_file: Option<PathBuf>,
+
+        /// Name of the source to query from the given manifest. Required if `--manifest-file` is
+        /// given.
+        #[arg(
+            long,
+            short = 's',
+            value_name = "SOURCE",
+            group = "query-source",
+            requires = "query-manifest"
+        )]
+        source: Option<String>,
     },
 }
 
@@ -105,6 +128,12 @@ pub struct ValidatedArgs {
 }
 
 #[derive(Debug)]
+pub struct CacheQueryArgs {
+    pub manifest_file: PathBuf,
+    pub source: String,
+}
+
+#[derive(Debug)]
 pub enum ValidatedCommand {
     Fetch {
         manifest_file: PathBuf,
@@ -118,6 +147,7 @@ pub enum ValidatedCommand {
     Cached {
         format: Option<OutputFormat>,
         cache: fetch_source::Cache,
+        query_args: Option<CacheQueryArgs>,
     },
 }
 
@@ -237,6 +267,8 @@ impl TryFrom<Command> for ValidatedCommand {
             Command::Cached {
                 format,
                 cache_dir: cache_dir_arg,
+                manifest_file,
+                source,
             } => {
                 let cache_dir = ValidatedArgs::detect_cache_dir(cache_dir_arg)?;
                 // For the cached command, don't create the cache directory if it doesn't exist
@@ -247,7 +279,24 @@ impl TryFrom<Command> for ValidatedCommand {
                         e
                     ))
                 })?;
-                Ok(ValidatedCommand::Cached { format, cache })
+                // Validate the manifest file if given
+                let query_args: Option<CacheQueryArgs> = match manifest_file {
+                    Some(path) => {
+                        let manifest_file = ValidatedArgs::detect_manifest_file(Some(path))?;
+                        let source =
+                            source.expect("--source is required when --manifest-file is given");
+                        Some(CacheQueryArgs {
+                            manifest_file,
+                            source,
+                        })
+                    }
+                    None => None,
+                };
+                Ok(ValidatedCommand::Cached {
+                    format,
+                    cache,
+                    query_args,
+                })
             }
         }
     }
