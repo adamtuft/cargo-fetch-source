@@ -2,7 +2,7 @@
 name = "cargo-fetch-source"
 description = "Declare and fetch external sources programmatically"
 repository = "https://github.com/adamtuft/cargo-fetch-source"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2024"
 authors = ["Adam Tuft"]
 license = "MIT OR Apache-2.0"
@@ -14,7 +14,7 @@ clap = { version = "4.5.41", features = ["derive"] }
 console = "0.16.0"
 dircpy = "0.3.19"
 directories = "6.0.0"
-fetch-source = { path = "../fetch-source", version = "0.1.2", features = ["tar", "rayon"] }
+fetch-source = { path = "../fetch-source", version = "0.2.0", features = ["tar", "rayon"] }
 indicatif = "0.18.0"
 rayon = "1.10.0"
 serde = "1.0.219"
