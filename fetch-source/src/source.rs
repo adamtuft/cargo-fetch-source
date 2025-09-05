@@ -191,6 +191,14 @@ impl std::fmt::Display for Source {
 }
 
 impl Source {
+    #[cfg(feature = "tar")]
+    /// Create a source representing a remote tar archive
+    pub fn tar<S: AsRef<str>>(url: S) -> Self {
+        Self::Tar(Tar {
+            url: url.as_ref().to_string(),
+        })
+    }
+
     /// Calculate the digest of a source.
     pub fn digest<S: AsRef<Self>>(value: S) -> Digest {
         let json = serde_json::to_string(value.as_ref())

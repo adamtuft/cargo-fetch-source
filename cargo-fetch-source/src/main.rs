@@ -203,39 +203,29 @@ fn list(sources: fetch_source::SourcesTable, format: Option<OutputFormat>) -> Re
 fn cached(
     cache: &fetch_source::Cache,
     format: Option<args::OutputFormat>,
-    query_args: Option<args::CacheQueryArgs>,
+    query_args: Option<args::CacheQuery>,
 ) -> Result<(), AppError> {
     if let Some(query_args) = query_args {
-        let manifest_file = &query_args.manifest_file;
-        let source_name = &query_args.source;
-        let sources = sources(manifest_file)?;
-        let source = match sources.get(source_name) {
-            Some(s) => s,
-            None => {
-                return Err(AppError::no_such_source(
-                    source_name.clone(),
-                    manifest_file.to_path_buf(),
-                ));
+        match query_args {
+            args::CacheQuery::Manifest {
+                manifest_file,
+                source: source_name,
+            } => {
+                let sources = sources(&manifest_file)?;
+                match sources.get(&source_name) {
+                    Some(source) => {
+                        query_cache_for_source(cache.items(), source, format);
+                    }
+                    None => {
+                        return Err(AppError::no_such_source(
+                            source_name,
+                            manifest_file.to_path_buf(),
+                        ));
+                    }
+                }
             }
-        };
-        if let Some(artefact) = cache.items().get(source) {
-            match format {
-                Some(OutputFormat::Json) => {
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(artefact)
-                            .expect("Failed to serialize artefact")
-                    );
-                }
-                Some(OutputFormat::Toml) => {
-                    println!(
-                        "{}",
-                        toml::to_string_pretty(artefact).expect("Failed to serialize artefact")
-                    );
-                }
-                None => {
-                    println!("{}", artefact.path().display());
-                }
+            args::CacheQuery::Source(source) => {
+                query_cache_for_source(cache.items(), &source, format);
             }
         }
     } else {
@@ -261,4 +251,30 @@ fn cached(
         println!("{formatted}");
     }
     Ok(())
+}
+
+fn query_cache_for_source(
+    cache_items: &fetch_source::CacheItems,
+    source: &fetch_source::Source,
+    format: Option<OutputFormat>,
+) {
+    if let Some(artefact) = cache_items.get(source) {
+        match format {
+            Some(OutputFormat::Json) => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(artefact).expect("Failed to serialize artefact")
+                );
+            }
+            Some(OutputFormat::Toml) => {
+                println!(
+                    "{}",
+                    toml::to_string_pretty(artefact).expect("Failed to serialize artefact")
+                );
+            }
+            None => {
+                println!("{}", artefact.path().display());
+            }
+        }
+    }
 }

@@ -111,6 +111,10 @@ enum Command {
             requires = "query-manifest"
         )]
         source: Option<String>,
+
+        /// A tar URL to query from the cache. Cannot be used with --manifest-file or --source.
+        #[arg(long = "tar", value_name = "URL", group = "query-tar", conflicts_with_all = ["manifest_file", "source"])]
+        tar: Option<String>,
     },
 }
 
@@ -128,9 +132,12 @@ pub struct ValidatedArgs {
 }
 
 #[derive(Debug)]
-pub struct CacheQueryArgs {
-    pub manifest_file: PathBuf,
-    pub source: String,
+pub enum CacheQuery {
+    Manifest {
+        manifest_file: PathBuf,
+        source: String,
+    },
+    Source(fetch_source::Source),
 }
 
 #[derive(Debug)]
@@ -147,7 +154,7 @@ pub enum ValidatedCommand {
     Cached {
         format: Option<OutputFormat>,
         cache: fetch_source::Cache,
-        query_args: Option<CacheQueryArgs>,
+        query_args: Option<CacheQuery>,
     },
 }
 
@@ -269,6 +276,7 @@ impl TryFrom<Command> for ValidatedCommand {
                 cache_dir: cache_dir_arg,
                 manifest_file,
                 source,
+                tar,
             } => {
                 let cache_dir = ValidatedArgs::detect_cache_dir(cache_dir_arg)?;
                 // For the cached command, don't create the cache directory if it doesn't exist
@@ -280,17 +288,18 @@ impl TryFrom<Command> for ValidatedCommand {
                     ))
                 })?;
                 // Validate the manifest file if given
-                let query_args: Option<CacheQueryArgs> = match manifest_file {
-                    Some(path) => {
-                        let manifest_file = ValidatedArgs::detect_manifest_file(Some(path))?;
-                        let source =
-                            source.expect("--source is required when --manifest-file is given");
-                        Some(CacheQueryArgs {
-                            manifest_file,
-                            source,
-                        })
-                    }
-                    None => None,
+                let query_args: Option<CacheQuery> = if let Some(path) = manifest_file {
+                    let manifest_file = ValidatedArgs::detect_manifest_file(Some(path))?;
+                    let source =
+                        source.expect("--source is required when --manifest-file is given");
+                    Some(CacheQuery::Manifest {
+                        manifest_file,
+                        source,
+                    })
+                } else if tar.is_some() {
+                    tar.map(|url| CacheQuery::Source(fetch_source::Source::tar(url)))
+                } else {
+                    None
                 };
                 Ok(ValidatedCommand::Cached {
                     format,
