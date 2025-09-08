@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use clap::FromArgMatches;
 use clap::{CommandFactory, Parser};
+use fetch_source::GitReference;
 
 use crate::error::AppError;
 
@@ -115,6 +116,26 @@ enum Command {
         /// A tar URL to query from the cache. Cannot be used with --manifest-file or --source.
         #[arg(long = "tar", value_name = "URL", group = "query-tar", conflicts_with_all = ["manifest_file", "source"])]
         tar: Option<String>,
+
+        /// A git URL to query from the cache. Cannot be used with --manifest-file, --source or --tar
+        #[arg(long = "git", value_name = "URL", group = "query-git", conflicts_with_all = ["manifest_file", "source", "tar"])]
+        git: Option<String>,
+
+        /// An optional branch name to use when querying the cache for a git source. Only valid with --git.
+        #[arg(long = "branch", short = 'b', value_name = "BRANCH", group = "query-git-ref", requires = "query-git", conflicts_with_all = ["manifest_file", "source", "tar", "tag", "rev"])]
+        branch: Option<String>,
+
+        /// An optional tag to use when querying the cache for a git source. Only valid with --git. Conflicts with --branch.
+        #[arg(long = "tag", short = 't', value_name = "TAG", group = "query-git-ref", requires = "query-git", conflicts_with_all = ["manifest_file", "source", "tar", "branch", "rev"])]
+        tag: Option<String>,
+
+        /// An optional commit SHA to use when querying the cache for a git source. Only valid with --git. Conflicts with --branch and --tag.
+        #[arg(long = "rev", short = 'r', value_name = "REV", group = "query-git-ref", requires = "query-git", conflicts_with_all = ["manifest_file", "source", "tar", "branch", "tag"])]
+        rev: Option<String>,
+
+        /// Whether to search for a git source with the `recursive` flag set. Only valid with --git.
+        #[arg(long = "recursive", group="query-git-recursive", requires = "query-git", conflicts_with_all = ["manifest_file", "source", "tar"])]
+        recursive: bool,
     },
 }
 
@@ -277,6 +298,11 @@ impl TryFrom<Command> for ValidatedCommand {
                 manifest_file,
                 source,
                 tar,
+                git,
+                branch,
+                tag,
+                rev,
+                recursive,
             } => {
                 let cache_dir = ValidatedArgs::detect_cache_dir(cache_dir_arg)?;
                 // For the cached command, don't create the cache directory if it doesn't exist
@@ -298,6 +324,17 @@ impl TryFrom<Command> for ValidatedCommand {
                     })
                 } else if tar.is_some() {
                     tar.map(|url| CacheQuery::Source(fetch_source::Source::tar(url)))
+                } else if git.is_some() {
+                    let reference = if let Some(branch) = branch {
+                        Some(GitReference::Branch(branch))
+                    } else if let Some(tag) = tag {
+                        Some(GitReference::Tag(tag))
+                    } else {
+                        rev.map(GitReference::Rev)
+                    };
+                    git.map(|url| {
+                        CacheQuery::Source(fetch_source::Source::git(url, reference, recursive))
+                    })
                 } else {
                     None
                 };

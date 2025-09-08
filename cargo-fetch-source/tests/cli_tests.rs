@@ -269,7 +269,7 @@ fn test_cached_command_query_manifest_source() {
 }
 
 #[test]
-fn test_cached_command_query_source_arg() {
+fn test_cached_command_query_source_arg_tar() {
     // Test that querying a cache for a source defined in the argument prints the path to the cached
     // source, and excludes other cached sources.
 
@@ -313,6 +313,104 @@ fn test_cached_command_query_source_arg() {
 
     // The output should only contain the digest of the cached "syn" source.
     assert!(output.contains(syn_101_digest));
+    assert!(!output.contains(syn_100_digest));
+}
+
+#[test]
+fn test_cached_command_query_source_arg_git() {
+    // Test that querying a cache for a source defined in the argument prints the path to the cached
+    // source, and excludes other cached sources.
+
+    // First, populate the cache with two sources: one to find and one that should be excluded.
+    let temp_dir = tempdir().unwrap();
+    let manifest_path = temp_dir.path().join("Cargo.toml");
+    let cache_path = temp_dir.path().join("cache");
+    let cargo_toml = r#"
+[package.metadata.fetch-source]
+"syn" = { git = "https://github.com/dtolnay/syn.git" }
+"syn::1.0.0" = { tar = "https://github.com/dtolnay/syn/archive/refs/tags/1.0.0.tar.gz" }
+    "#;
+    std::fs::write(&manifest_path, cargo_toml).unwrap();
+    let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
+    cmd.args([
+        "fetch",
+        "--manifest-file",
+        manifest_path.to_str().unwrap(),
+        "--cache",
+        cache_path.to_str().unwrap(),
+    ]);
+    cmd.assert().success();
+
+    // The digest of the source we want to check for in the cache
+    let syn_git_digest = "e919341bd778304b42215bfd5c9015df7113cf5addb1ad8b7bcd057887e35de3";
+
+    // The digest of the other source which was cached, but that shouldn't appear in the output
+    let syn_100_digest = "6366d155d905264e8697cbe862fe2d8519c1d958af0e4d784b79ca89a540678b";
+
+    // Query the cache for the "syn" source
+    let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
+    cmd.args([
+        "cached",
+        "--cache",
+        cache_path.to_str().unwrap(),
+        "--git",
+        "https://github.com/dtolnay/syn.git",
+    ]);
+    let result = cmd.assert().success();
+    let output = String::from_utf8_lossy(&result.get_output().stdout);
+
+    // The output should only contain the digest of the cached "syn" source.
+    assert!(output.contains(syn_git_digest));
+    assert!(!output.contains(syn_100_digest));
+}
+
+#[test]
+fn test_cached_command_query_source_arg_git_tag() {
+    // Test that querying a cache for a source defined in the argument prints the path to the cached
+    // source, and excludes other cached sources.
+
+    // First, populate the cache with two sources: one to find and one that should be excluded.
+    let temp_dir = tempdir().unwrap();
+    let manifest_path = temp_dir.path().join("Cargo.toml");
+    let cache_path = temp_dir.path().join("cache");
+    let cargo_toml = r#"
+[package.metadata.fetch-source]
+"syn" = { git = "https://github.com/dtolnay/syn.git", tag = "1.0.0" }
+"syn::1.0.0" = { tar = "https://github.com/dtolnay/syn/archive/refs/tags/1.0.0.tar.gz" }
+    "#;
+    std::fs::write(&manifest_path, cargo_toml).unwrap();
+    let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
+    cmd.args([
+        "fetch",
+        "--manifest-file",
+        manifest_path.to_str().unwrap(),
+        "--cache",
+        cache_path.to_str().unwrap(),
+    ]);
+    cmd.assert().success();
+
+    // The digest of the source we want to check for in the cache
+    let syn_git_digest = "f5d003cb8598219dd749fd6ec2fea5b57597d0e751227e705c5b09522b1bf53c";
+
+    // The digest of the other source which was cached, but that shouldn't appear in the output
+    let syn_100_digest = "6366d155d905264e8697cbe862fe2d8519c1d958af0e4d784b79ca89a540678b";
+
+    // Query the cache for the "syn" source
+    let mut cmd = Command::cargo_bin("cargo-fetch-source").unwrap();
+    cmd.args([
+        "cached",
+        "--cache",
+        cache_path.to_str().unwrap(),
+        "--git",
+        "https://github.com/dtolnay/syn.git",
+        "--tag",
+        "1.0.0",
+    ]);
+    let result = cmd.assert().success();
+    let output = String::from_utf8_lossy(&result.get_output().stdout);
+
+    // The output should only contain the digest of the cached "syn" source.
+    assert!(output.contains(syn_git_digest));
     assert!(!output.contains(syn_100_digest));
 }
 

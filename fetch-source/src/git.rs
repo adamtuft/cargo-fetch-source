@@ -5,12 +5,16 @@ use std::io::Read;
 use crate::error::FetchErrorKind;
 
 #[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq, Clone)]
+/// A reference to a specific branch, tag, or commit in a git repository.
 pub enum GitReference {
     #[serde(rename = "branch")]
+    /// A branch name.
     Branch(String),
     #[serde(rename = "tag")]
+    /// A tag name.
     Tag(String),
     #[serde(rename = "rev")]
+    /// A commit SHA.
     Rev(String),
 }
 
@@ -26,6 +30,15 @@ pub struct Git {
 }
 
 impl Git {
+    /// Create a new Git source with the given URL.
+    pub(crate) fn new(url: String, reference: Option<GitReference>, recursive: bool) -> Self {
+        Self {
+            url,
+            reference,
+            recursive,
+        }
+    }
+
     /// The upstream URL.
     pub fn upstream(&self) -> &str {
         &self.url

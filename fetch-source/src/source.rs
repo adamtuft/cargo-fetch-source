@@ -1,7 +1,7 @@
 //! Core types for interacting with sources declared in `Cargo.toml`.
 
 use super::error::FetchError;
-use super::git::Git;
+use super::git::{Git, GitReference};
 #[cfg(feature = "tar")]
 use super::tar::Tar;
 
@@ -197,6 +197,11 @@ impl Source {
         Self::Tar(Tar {
             url: url.as_ref().to_string(),
         })
+    }
+
+    /// Create a source representing a remote git repository
+    pub fn git<S: AsRef<str>>(url: S, reference: Option<GitReference>, recursive: bool) -> Self {
+        Self::Git(Git::new(url.as_ref().to_string(), reference, recursive))
     }
 
     /// Calculate the digest of a source.
