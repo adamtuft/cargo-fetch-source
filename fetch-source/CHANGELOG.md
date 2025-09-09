@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0](https://github.com/adamtuft/cargo-fetch-source/compare/fetch-source-v0.1.2...fetch-source-v0.2.0) (2025-09-09)
+
+
+### Features
+
+* query cache for fetched git sources ([679c70d](https://github.com/adamtuft/cargo-fetch-source/commit/679c70d2a51d0631ad0d0b1a69c1ec8faaee4982))
+* query cache for tar source given via command line ([d637732](https://github.com/adamtuft/cargo-fetch-source/commit/d63773218d2996649627bf345ada8c9391974e8c))
+
 ## [0.1.2](https://github.com/adamtuft/cargo-fetch-source/compare/fetch-source-v0.1.1...fetch-source-v0.1.2) (2025-09-01)
 
 
